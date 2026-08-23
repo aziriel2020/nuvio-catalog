@@ -1,0 +1,14 @@
+{
+  "name": "nuvio-usa-releases-catalog",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone NuvioTV catalog-first addon for US streaming releases, US TV broadcasts and anime airings",
+  "scripts": {
+    "test": "node --test",
+    "start": "node local-server.js",
+    "configure": "node scripts/configure.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
