@@ -66,7 +66,7 @@ test('VOD is Films-only for periods and months',()=>{
 
 test('manifest v1.5 stays hidden from normal Home because Collections own the UI',()=>{
   const m=api._internals.buildManifest('https://archives.example',fixedNow,tz);
-  assert.equal(m.version,'1.5.1');
+  assert.equal(m.version,'1.5.2');
   assert.equal(m.catalogs.length,779);
   assert(m.catalogs.every(c=>c.showInHome===false));
   assert(m.catalogs.every(c=>c.extraSupported.includes('skip')));
@@ -96,7 +96,7 @@ test('Shield Modern decoration keeps real content type and landscape artwork for
 
 test('Nuvio import has platform names as the 10 parent Collections',()=>{
   const payload=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
-  assert.deepEqual(payload.map(c=>c.title),['Netflix','Prime Video','Disney+','Max','Apple TV+','Paramount+','Peacock','Hulu','Crunchyroll + Animes','VOD']);
+  assert.deepEqual(payload.map(c=>c.title),['Netflix','Prime Video','Disney+','Max','Apple TV+','Paramount+','Peacock','Hulu','Crunchyroll + AniList','VOD']);
   assert.equal(payload.length,10);
   assert(payload.every(c=>c.pinToTop===true&&c.viewMode==='FOLLOW_LAYOUT'&&c.showAllTab===false));
 });
@@ -120,8 +120,19 @@ test('normal streaming parent contains Modern Series and Films cards',()=>{
   }
 });
 
-test('Crunchyroll + Animes has Series and Films, VOD has Films only, and Crunchyroll series rows merge anime',()=>{
-  assert.deepEqual(collection('Crunchyroll + Animes').folders.map(f=>f.title),['Séries','Films']);
+
+
+test('Paramount+ keeps both Series and Films folders with valid archive sources',()=>{
+  const paramount=collection('Paramount+');
+  assert.deepEqual(paramount.folders.map(f=>f.title),['Séries','Films']);
+  assert(paramount.folders[0].sources.some(s=>s.catalogId==='archives-v3-series-paramount-plus-2026-08'));
+  assert(paramount.folders[1].sources.some(s=>s.catalogId==='archives-v3-movie-paramount-plus-2026-08'));
+  assert.equal(api._internals.resolveArchiveCatalog('archives-v3-series-paramount-plus-2026-08','series',fixedNow,tz).providerSlug,'paramount-plus');
+  assert.equal(api._internals.resolveArchiveCatalog('archives-v3-movie-paramount-plus-2026-08','movie',fixedNow,tz).providerSlug,'paramount-plus');
+});
+
+test('Crunchyroll + AniList has Series and Films, VOD has Films only, and Crunchyroll series rows merge anime',()=>{
+  assert.deepEqual(collection('Crunchyroll + AniList').folders.map(f=>f.title),['Séries','Films']);
   assert.deepEqual(collection('VOD').folders.map(f=>f.title),['Films']);
   const today=api._internals.resolveArchiveCatalog('archives-v3-series-crunchyroll-today','series',fixedNow,tz);
   const month=api._internals.resolveArchiveCatalog('archives-v3-series-crunchyroll-2026-08','series',fixedNow,tz);
@@ -186,27 +197,28 @@ test('Modern category artwork uses a huge centered logo area and keeps the Serie
   const svg=api._internals.platformCategoryCardSvg('netflix','series',fake);
   assert.match(svg,/SÉRIES/);
   assert.match(svg,/data:image\/png;base64,AAECAwQ=/);
-  assert.match(svg,/x="220" y="78" width="1160" height="430"/);
+  assert.match(svg,/STREAMING PLATFORM/);
   assert.match(svg,/PÉRIODES \+ MOIS/);
   assert.match(svg,/#e50914/i);
 });
 
 test('Crunchyroll category artwork explicitly says anime is combined',()=>{
   const svg=api._internals.platformCategoryCardSvg('crunchyroll','series',null);
-  assert.match(svg,/CRUNCHYROLL \+ ANIMES/);
+  assert.match(svg,/CRUNCHYROLL \+ ANILIST/);
   assert.match(svg,/SÉRIES/);
   const movieSvg=api._internals.platformCategoryCardSvg('crunchyroll','films',null);
   assert.match(movieSvg,/FILMS D’ANIME \+ STREAMING/);
   assert.match(movieSvg,/FILMS/);
 });
 
-test('Modern provider backdrop is all-vector around a large centered provider logo',()=>{
+test('Modern provider backdrop is all-vector around a branded platform badge',()=>{
   const fake='data:image/png;base64,AAAA';
   const svg=api._internals.platformBackdropSvg('prime-video','series',fake);
   assert.match(svg,/Prime Video/);
   assert.match(svg,/data:image\/png;base64,AAAA/);
-  assert.match(svg,/width="1200" height="390"/);
+  assert.match(svg,/CALENDAR ARCHIVES/);
   assert.match(svg,/SÉRIES/);
+  assert.match(svg,/STREAMING PLATFORM/);
 });
 
 test('TMDb watch-provider logo is fetched at original resolution for non-pixelated covers',async()=>{

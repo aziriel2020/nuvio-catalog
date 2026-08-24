@@ -9,7 +9,7 @@ test('manifest route exposes v1.5 periods first plus month+year catalogs',async(
   process.env.NUVIO_NOW_OVERRIDE='2026-08-24T12:28:00Z';
   try{
     const r=await call('/manifest.json',tz);assert.equal(r.statusCode,200);const m=JSON.parse(r.text);
-    assert.equal(m.version,'1.5.1');assert.equal(m.catalogs.length,779);
+    assert.equal(m.version,'1.5.2');assert.equal(m.catalogs.length,779);
     assert(m.catalogs.some(c=>c.name==='Aujourd’hui'&&c.type==='series'));
     assert(m.catalogs.some(c=>c.name==='La semaine suivante'&&c.type==='movie'));
     assert(m.catalogs.some(c=>c.name==='Août 2026'&&c.type==='series'));
@@ -41,7 +41,7 @@ test('collections route is platform parents -> Series/Films -> five periods -> m
   process.env.NUVIO_NOW_OVERRIDE='2026-08-24T12:28:00Z';
   try{
     const r=await call('/nuvio-collections.json',tz);assert.equal(r.statusCode,200);const p=JSON.parse(r.text);
-    assert.deepEqual(p.map(x=>x.title),['Netflix','Prime Video','Disney+','Max','Apple TV+','Paramount+','Peacock','Hulu','Crunchyroll + Animes','VOD']);
+    assert.deepEqual(p.map(x=>x.title),['Netflix','Prime Video','Disney+','Max','Apple TV+','Paramount+','Peacock','Hulu','Crunchyroll + AniList','VOD']);
     assert.deepEqual(p[0].folders.map(x=>x.title),['Séries','Films']);
     assert.deepEqual(p[8].folders.map(x=>x.title),['Séries','Films']);
     assert.deepEqual(p[9].folders.map(x=>x.title),['Films']);
@@ -56,10 +56,22 @@ test('collections route is platform parents -> Series/Films -> five periods -> m
   }finally{delete process.env.NUVIO_NOW_OVERRIDE}
 });
 
+
+
+test('Paramount+ collection exposes both Series and Films with correct routed catalog IDs',async()=>{
+  process.env.NUVIO_NOW_OVERRIDE='2026-08-24T12:28:00Z';
+  try{
+    const r=await call('/nuvio-collections.json',tz);const p=JSON.parse(r.text);const c=p.find(x=>x.title==='Paramount+');
+    assert.deepEqual(c.folders.map(x=>x.title),['Séries','Films']);
+    assert(c.folders[0].sources.some(x=>x.catalogId==='archives-v3-series-paramount-plus-2026-08'));
+    assert(c.folders[1].sources.some(x=>x.catalogId==='archives-v3-movie-paramount-plus-2026-08'));
+  }finally{delete process.env.NUVIO_NOW_OVERRIDE}
+});
+
 test('Crunchyroll collection points every Series row at the Crunchyroll parent catalog IDs',async()=>{
   process.env.NUVIO_NOW_OVERRIDE='2026-08-24T12:28:00Z';
   try{
-    const r=await call('/nuvio-collections.json',tz);const p=JSON.parse(r.text);const c=p.find(x=>x.title==='Crunchyroll + Animes');
+    const r=await call('/nuvio-collections.json',tz);const p=JSON.parse(r.text);const c=p.find(x=>x.title==='Crunchyroll + AniList');
     assert.equal(c.folders.length,2);
     assert(c.folders[0].sources.every(x=>x.catalogId.startsWith('archives-v3-series-crunchyroll-')));assert(c.folders[1].sources.every(x=>x.catalogId.startsWith('archives-v3-movie-crunchyroll-')));
   }finally{delete process.env.NUVIO_NOW_OVERRIDE}
@@ -67,7 +79,7 @@ test('Crunchyroll collection points every Series row at the Crunchyroll parent c
 
 test('blueprint route describes periods, rolling months and Crunchyroll anime merge',async()=>{
   process.env.NUVIO_NOW_OVERRIDE='2026-08-24T12:28:00Z';
-  try{const r=await call('/archive-blueprint.json',tz);const b=JSON.parse(r.text);assert.equal(b.schema,'nuvio-calendar-archives-blueprint-v1.5.1');assert.equal(b.hierarchy,'platform collection -> Series/Films folder -> dynamic periods -> month+year rows descending -> content');assert.equal(b.visibleRollingYears,2);assert.equal(b.prewiredFutureYears,1);assert.equal(b.platformParents.at(-1),'VOD');assert.match(b.note,/Crunchyroll.*AniList/)}finally{delete process.env.NUVIO_NOW_OVERRIDE}
+  try{const r=await call('/archive-blueprint.json',tz);const b=JSON.parse(r.text);assert.equal(b.schema,'nuvio-calendar-archives-blueprint-v1.5.2');assert.equal(b.hierarchy,'platform collection -> Series/Films folder -> dynamic periods -> month+year rows descending -> content');assert.equal(b.visibleRollingYears,2);assert.equal(b.prewiredFutureYears,1);assert.equal(b.platformParents.at(-1),'VOD');assert.match(b.note,/Crunchyroll.*AniList/)}finally{delete process.env.NUVIO_NOW_OVERRIDE}
 });
 
 test('modern category-card route renders a clean centered provider cover when credentials are absent',async()=>{
@@ -77,7 +89,7 @@ test('modern category-card route renders a clean centered provider cover when cr
 
 test('Crunchyroll card announces combined anime',async()=>{
   const oldKey=process.env.TMDB_API_KEY;const oldToken=process.env.TMDB_READ_TOKEN;delete process.env.TMDB_API_KEY;delete process.env.TMDB_READ_TOKEN;
-  try{const r=await call('/platform-category-card.svg?provider=crunchyroll&category=series');assert.equal(r.statusCode,200);assert.match(r.text,/CRUNCHYROLL \+ ANIMES/)}finally{if(oldKey!==undefined)process.env.TMDB_API_KEY=oldKey;if(oldToken!==undefined)process.env.TMDB_READ_TOKEN=oldToken}
+  try{const r=await call('/platform-category-card.svg?provider=crunchyroll&category=series');assert.equal(r.statusCode,200);assert.match(r.text,/CRUNCHYROLL \+ ANILIST/)}finally{if(oldKey!==undefined)process.env.TMDB_API_KEY=oldKey;if(oldToken!==undefined)process.env.TMDB_READ_TOKEN=oldToken}
 });
 
 test('platform backdrop route is HD vector artwork with platform and category',async()=>{

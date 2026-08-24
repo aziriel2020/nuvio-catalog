@@ -1,4 +1,4 @@
-# Nuvio Calendar Archives v1.5.1 — NVIDIA Shield / Modern
+# Nuvio Calendar Archives v1.5.2 — NVIDIA Shield / Modern
 
 Cette version garde l’architecture native Nuvio validée et ajoute les périodes automatiques, la fusion Crunchyroll + animes et une refonte complète des visuels.
 
@@ -47,7 +47,7 @@ Hulu
 ├── Séries
 └── Films
 
-Crunchyroll + Animes
+Crunchyroll + AniList
 ├── Séries
 │   └── Crunchyroll streaming + animes AniList combinés dans les mêmes lignes
 └── Films
@@ -89,22 +89,22 @@ Les mois futurs sont déjà pré-câblés. En août, Septembre 2026 est vide et 
 
 Une année future est également pré-câblée pour le roulement annuel.
 
-## Crunchyroll + Animes + films d’anime
+## Crunchyroll + AniList + films d’anime
 
 La branche Anime séparée n’existe plus dans cette architecture.
 
-Toutes les lignes `Crunchyroll + Animes → Séries` fusionnent :
+Toutes les lignes `Crunchyroll + AniList → Séries` fusionnent :
 
 - les sorties/séries Crunchyroll détectées côté streaming ;
 - les airings anime AniList convertis vers les métadonnées Nuvio/TMDb.
 
-Le parent **Crunchyroll + Animes** contient maintenant aussi un dossier **Films** pour les films d’anime / films streaming liés à Crunchyroll.
+Le parent **Crunchyroll + AniList** contient maintenant aussi un dossier **Films** pour les films d’anime / films streaming liés à Crunchyroll.
 
 ## Covers Modern HD
 
 Les cartes `Séries` et `Films` restent en `LANDSCAPE` 16:9.
 
-La v1.5.1 change le rendu :
+La v1.5.2 change le rendu :
 
 - logo de plateforme beaucoup plus grand et centré ;
 - logo TMDb Watch Provider chargé en résolution `original` au lieu de `w300` ;
@@ -131,10 +131,10 @@ https://TON-DEPLOIEMENT/nuvio-collections.json
 
 ## Mise à jour depuis v1.4.0
 
-Après déploiement de v1.5.1 :
+Après déploiement de v1.5.2 :
 
 1. mets à jour l’addon avec le nouveau `manifest.json` ;
-2. réimporte **une seule fois** `/nuvio-collections.json` pour ajouter les cinq périodes, le parent **Crunchyroll + Animes** et le dossier **Films** ;
+2. réimporte **une seule fois** `/nuvio-collections.json` pour ajouter les cinq périodes, le parent **Crunchyroll + AniList** et le dossier **Films** ;
 3. ensuite les changements de jour, semaine et mois se font automatiquement sans réimport.
 
 Les IDs parents existants sont conservés pour remplacer proprement les Collections déjà importées.
@@ -165,4 +165,4 @@ npm run configure
 npm test
 ```
 
-La suite vérifie notamment les cinq périodes, le changement automatique de date, l’ordre des sources, le passage août → septembre sans changement du JSON Collections, les mois futurs sans appel réseau, VOD Films, Crunchyroll + Animes, les films d’anime, et les covers Modern HD.
+La suite vérifie notamment les cinq périodes, le changement automatique de date, l’ordre des sources, le passage août → septembre sans changement du JSON Collections, les mois futurs sans appel réseau, VOD Films, Crunchyroll + AniList, les films d’anime, et les covers Modern HD.

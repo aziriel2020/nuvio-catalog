@@ -1,5 +1,5 @@
 {
-  "schema": "nuvio-calendar-archives-blueprint-v1.5.1",
+  "schema": "nuvio-calendar-archives-blueprint-v1.5.2",
   "generatedForTimezone": "Europe/Brussels",
   "archiveMinYear": 2025,
   "visibleRollingYears": 2,
@@ -41,7 +41,7 @@
     "Paramount+",
     "Peacock",
     "Hulu",
-    "Crunchyroll + Animes",
+    "Crunchyroll + AniList",
     "VOD"
   ],
   "collections": [
@@ -7607,7 +7607,7 @@
     },
     {
       "id": "calendar-archives-crunchyroll",
-      "title": "Crunchyroll + Animes",
+      "title": "Crunchyroll + AniList",
       "backdropImageUrl": null,
       "pinToTop": true,
       "focusGlowEnabled": true,
@@ -16592,7 +16592,7 @@
     },
     {
       "id": "calendar-archives-crunchyroll",
-      "title": "Crunchyroll + Animes",
+      "title": "Crunchyroll + AniList",
       "backdropImageUrl": null,
       "pinToTop": true,
       "focusGlowEnabled": true,
@@ -18015,5 +18015,5 @@
     }
   ],
   "importPath": "/nuvio-collections.json",
-  "note": "Chaque plateforme est un parent Nuvio. Dans le parent, Séries et/ou Films sont les cartes Modern. Chaque dossier commence par Aujourd’hui, Demain, Hier, Semaine passée et La semaine suivante, puis les mois + années décroissants. Les périodes suivent automatiquement la date locale. Les mois futurs sont pré-câblés et apparaissent automatiquement. Crunchyroll + Animes fusionne son catalogue streaming avec les animes AniList et ajoute aussi les films d’anime. VOD est Films uniquement. Les cartes utilisent les logos plateformes haute définition et un habillage vectoriel Modern."
+  "note": "Chaque plateforme est un parent Nuvio. Dans le parent, Séries et/ou Films sont les cartes Modern. Chaque dossier commence par Aujourd’hui, Demain, Hier, Semaine passée et La semaine suivante, puis les mois + années décroissants. Les périodes suivent automatiquement la date locale. Les mois futurs sont pré-câblés et apparaissent automatiquement. Crunchyroll + AniList fusionne son catalogue streaming avec les animes AniList et ajoute aussi les films d’anime. VOD est Films uniquement. Les cartes utilisent les logos plateformes haute définition et un habillage vectoriel Modern."
 }
