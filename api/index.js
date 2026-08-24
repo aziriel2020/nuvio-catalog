@@ -32,7 +32,7 @@ const {
   normalizeTitle
 } = require('../src/calendar');
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.1';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const TVMAZE_BASE = 'https://api.tvmaze.com';
 const ANILIST_URL = 'https://graphql.anilist.co';
@@ -46,7 +46,7 @@ const PROVIDERS_TTL_MS = 6 * 60 * 60 * 1000;
 const TVMAZE_SCHEDULE_TTL_MS = 10 * 60 * 1000;
 const ANILIST_SCHEDULE_TTL_MS = 10 * 60 * 1000;
 const MAPPING_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-const SOURCE_VERSION = 'calendar-archives-v1.4-modern-shield';
+const SOURCE_VERSION = 'calendar-archives-v1.5.1-modern-shield';
 
 const PROVIDERS = [
   { slug: 'netflix', label: 'Netflix', aliases: ['Netflix', 'Netflix Standard with Ads'] },
@@ -57,13 +57,13 @@ const PROVIDERS = [
   { slug: 'paramount-plus', label: 'Paramount+', aliases: ['Paramount Plus', 'Paramount+'] },
   { slug: 'peacock', label: 'Peacock', aliases: ['Peacock Premium', 'Peacock Premium Plus', 'Peacock'] },
   { slug: 'hulu', label: 'Hulu', aliases: ['Hulu'] },
-  { slug: 'crunchyroll', label: 'Crunchyroll', aliases: ['Crunchyroll'] }
+  { slug: 'crunchyroll', label: 'Crunchyroll + Animes', aliases: ['Crunchyroll', 'Crunchyroll + Animes'] }
 ];
 
 const PROVIDER_BY_SLUG = new Map(PROVIDERS.map((provider) => [provider.slug, provider]));
 
 const ARCHIVE_MIN_YEAR = 2025;
-const ARCHIVE_ID_PREFIX = 'archives-v2';
+const ARCHIVE_ID_PREFIX = 'archives-v3';
 const ARCHIVE_PREWIRE_FUTURE_YEARS = 1;
 const ARCHIVE_MONTHS_FR = Object.freeze([
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
@@ -72,7 +72,7 @@ const ARCHIVE_MONTHS_FR = Object.freeze([
 const ARCHIVE_VOD_PROVIDER = Object.freeze({ slug: 'vod-us', label: 'VOD', aliases: [] });
 const ARCHIVE_SERIES_PROVIDERS = Object.freeze(PROVIDERS.slice());
 const ARCHIVE_FILM_PROVIDERS = Object.freeze([
-  ...PROVIDERS.filter((provider) => provider.slug !== 'crunchyroll'),
+  ...PROVIDERS,
   ARCHIVE_VOD_PROVIDER
 ]);
 const ARCHIVE_PROVIDER_BY_SLUG = new Map([
@@ -84,13 +84,25 @@ const ARCHIVE_TYPES = Object.freeze([
   { key: 'films', type: 'movie', title: 'Films', providers: ARCHIVE_FILM_PROVIDERS }
 ]);
 
-// Native Nuvio hierarchy used by v1.4:
+// Every platform/category folder begins with the same five rolling periods.
+// IDs are deliberately stable: their date windows move with the viewer-local day,
+// so no Collection re-import is needed when Today/Tomorrow/Weeks advance.
+const ARCHIVE_DYNAMIC_PERIODS = Object.freeze([
+  { key: 'today', period: 'today', label: 'Aujourd’hui' },
+  { key: 'tomorrow', period: 'tomorrow', label: 'Demain' },
+  { key: 'yesterday', period: 'yesterday', label: 'Hier' },
+  { key: 'lastweek', period: 'lastweek', label: 'Semaine passée' },
+  { key: 'nextweek', period: 'nextweek', label: 'La semaine suivante' }
+]);
+const ARCHIVE_DYNAMIC_PERIOD_BY_KEY = new Map(ARCHIVE_DYNAMIC_PERIODS.map((entry) => [entry.key, entry]));
+const ARCHIVE_DYNAMIC_PERIOD_ORDER = new Map(ARCHIVE_DYNAMIC_PERIODS.map((entry, index) => [entry.key, index]));
+
+// Native Nuvio hierarchy used by v1.5:
 //   Collection parent = streaming platform
 //   Folder child      = Séries / Films
-//   Folder rows       = months + years in descending order
-// Future months are pre-wired but return an empty catalog. Nuvio Modern hides
-// those rows, so September appears automatically above August when September
-// starts, without re-importing the Collection JSON.
+//   Folder rows       = dynamic periods first, then months + years descending
+// Future months are pre-wired but return an empty catalog. Dynamic period IDs
+// never change, so all five period rows and month rollovers update automatically.
 const PLATFORM_COLLECTIONS = Object.freeze([
   ...PROVIDERS.map((provider) => ({
     provider,
@@ -105,7 +117,7 @@ const PLATFORM_COLLECTIONS = Object.freeze([
 ]);
 
 const PLATFORM_COLLECTION_ID_OVERRIDES = Object.freeze({
-  // Reuse the two v1.3 parent IDs so a v1.4 import replaces them cleanly.
+  // Reuse the existing parent IDs so a v1.5 import replaces older Collections cleanly.
   netflix: 'calendar-archives',
   'prime-video': 'calendar-archives-films'
 });
@@ -125,9 +137,22 @@ function archiveCatalogId(type, providerSlug, year, month) {
   return `${ARCHIVE_ID_PREFIX}-${typeToken}-${providerSlug}-${year}-${String(month).padStart(2, '0')}`;
 }
 
+function archiveDynamicCatalogId(type, providerSlug, periodKey) {
+  const typeToken = type === 'movie' ? 'movie' : 'series';
+  return `${ARCHIVE_ID_PREFIX}-${typeToken}-${providerSlug}-${periodKey}`;
+}
+
+function archiveSourceFor(type, provider) {
+  if (type === 'movie' && provider.slug === ARCHIVE_VOD_PROVIDER.slug) return 'tmdb-vod';
+  if (type === 'series' && provider.slug === 'crunchyroll') return 'crunchyroll-anime-combined';
+  return 'tmdb-streaming';
+}
+
 function archiveDescriptor(type, provider, year, month) {
   const monthLabel = ARCHIVE_MONTHS_FR[month - 1];
-  const isVod = type === 'movie' && provider.slug === ARCHIVE_VOD_PROVIDER.slug;
+  const source = archiveSourceFor(type, provider);
+  const isVod = source === 'tmdb-vod';
+  const isCrunchyrollAnime = source === 'crunchyroll-anime-combined';
   return {
     type,
     // Platform and category are already represented by Collection -> Folder,
@@ -136,8 +161,8 @@ function archiveDescriptor(type, provider, year, month) {
     providerSlug: provider.slug,
     cardProvider: provider.label,
     period: archivePeriod(year, month),
-    source: isVod ? 'tmdb-vod' : 'tmdb-streaming',
-    section: type === 'movie' ? 'films' : 'series-streaming',
+    source,
+    section: isCrunchyrollAnime ? 'anime' : (type === 'movie' ? 'films' : 'series-streaming'),
     noFilters: true,
     explore: true,
     archiveYear: year,
@@ -145,7 +170,31 @@ function archiveDescriptor(type, provider, year, month) {
     archiveProvider: provider.slug,
     archiveProviderLabel: provider.label,
     archiveCategory: type === 'movie' ? 'films' : 'series',
-    archiveKind: isVod ? 'vod' : 'streaming'
+    archiveKind: isVod ? 'vod' : (isCrunchyrollAnime ? 'crunchyroll+anime' : 'streaming')
+  };
+}
+
+function archiveDynamicDescriptor(type, provider, periodKey) {
+  const definition = ARCHIVE_DYNAMIC_PERIOD_BY_KEY.get(periodKey);
+  if (!definition) return null;
+  const source = archiveSourceFor(type, provider);
+  const isVod = source === 'tmdb-vod';
+  const isCrunchyrollAnime = source === 'crunchyroll-anime-combined';
+  return {
+    type,
+    name: definition.label,
+    providerSlug: provider.slug,
+    cardProvider: provider.label,
+    period: definition.period,
+    source,
+    section: isCrunchyrollAnime ? 'anime' : (type === 'movie' ? 'films' : 'series-streaming'),
+    noFilters: true,
+    explore: true,
+    archivePeriodKey: definition.key,
+    archiveProvider: provider.slug,
+    archiveProviderLabel: provider.label,
+    archiveCategory: type === 'movie' ? 'films' : 'series',
+    archiveKind: isVod ? 'vod-period' : (isCrunchyrollAnime ? 'crunchyroll+anime-period' : 'streaming-period')
   };
 }
 
@@ -165,6 +214,18 @@ function archiveYearIsVisible(year, now = runtimeNow(), timeZone = DEFAULT_TIMEZ
 
 function buildArchiveCatalogEntries(now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) {
   const entries = [];
+
+  // Stable rolling periods are first in every folder.
+  for (const category of ARCHIVE_TYPES) {
+    for (const provider of category.providers) {
+      for (const definition of ARCHIVE_DYNAMIC_PERIODS) {
+        const catalog = archiveDynamicDescriptor(category.type, provider, definition.key);
+        entries.push({ id: archiveDynamicCatalogId(category.type, provider.slug, definition.key), catalog });
+      }
+    }
+  }
+
+  // Month rows are pre-wired across previous/current/next year.
   for (const year of archivePrewiredYears(now, timeZone)) {
     for (const category of ARCHIVE_TYPES) {
       for (const provider of category.providers) {
@@ -178,20 +239,35 @@ function buildArchiveCatalogEntries(now = runtimeNow(), timeZone = DEFAULT_TIMEZ
   return entries;
 }
 
+function archiveProviderAllowed(expectedType, providerSlug) {
+  if (expectedType === 'movie') return ARCHIVE_FILM_PROVIDERS.some((entry) => entry.slug === providerSlug);
+  return ARCHIVE_SERIES_PROVIDERS.some((entry) => entry.slug === providerSlug);
+}
+
 function resolveArchiveCatalog(catalogId, type, now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) {
-  const m = String(catalogId || '').match(/^archives-v2-(series|movie)-([a-z0-9-]+)-(\d{4})-(\d{2})$/);
-  if (!m) return null;
-  const idType = m[1];
-  const providerSlug = m[2];
-  const year = Number(m[3]);
-  const month = Number(m[4]);
-  const expectedType = idType === 'movie' ? 'movie' : 'series';
+  const raw = String(catalogId || '');
+
+  const dynamic = raw.match(/^archives-v3-(series|movie)-([a-z0-9-]+)-(today|tomorrow|yesterday|lastweek|nextweek)$/);
+  if (dynamic) {
+    const expectedType = dynamic[1] === 'movie' ? 'movie' : 'series';
+    const providerSlug = dynamic[2];
+    const periodKey = dynamic[3];
+    if (type !== expectedType || !archiveProviderAllowed(expectedType, providerSlug)) return null;
+    const provider = ARCHIVE_PROVIDER_BY_SLUG.get(providerSlug);
+    if (!provider) return null;
+    return archiveDynamicDescriptor(expectedType, provider, periodKey);
+  }
+
+  const monthly = raw.match(/^archives-v3-(series|movie)-([a-z0-9-]+)-(\d{4})-(\d{2})$/);
+  if (!monthly) return null;
+  const expectedType = monthly[1] === 'movie' ? 'movie' : 'series';
+  const providerSlug = monthly[2];
+  const year = Number(monthly[3]);
+  const month = Number(monthly[4]);
   const allowedYears = new Set(archivePrewiredYears(now, timeZone));
   if (type !== expectedType || !allowedYears.has(year) || month < 1 || month > 12) return null;
   const provider = ARCHIVE_PROVIDER_BY_SLUG.get(providerSlug);
-  if (!provider) return null;
-  if (expectedType === 'movie' && !ARCHIVE_FILM_PROVIDERS.some((entry) => entry.slug === providerSlug)) return null;
-  if (expectedType === 'series' && !ARCHIVE_SERIES_PROVIDERS.some((entry) => entry.slug === providerSlug)) return null;
+  if (!provider || !archiveProviderAllowed(expectedType, providerSlug)) return null;
   return archiveDescriptor(expectedType, provider, year, month);
 }
 
@@ -232,6 +308,12 @@ function buildPlatformCollection(definition, entries, origin = null) {
     const sourceEntries = entries
       .filter((entry) => entry.catalog.providerSlug === provider.slug && entry.catalog.type === category.type)
       .sort((a, b) => {
+        const aPeriod = a.catalog.archivePeriodKey;
+        const bPeriod = b.catalog.archivePeriodKey;
+        if (aPeriod || bPeriod) {
+          if (aPeriod && bPeriod) return ARCHIVE_DYNAMIC_PERIOD_ORDER.get(aPeriod) - ARCHIVE_DYNAMIC_PERIOD_ORDER.get(bPeriod);
+          return aPeriod ? -1 : 1;
+        }
         if (a.catalog.archiveYear !== b.catalog.archiveYear) return b.catalog.archiveYear - a.catalog.archiveYear;
         return b.catalog.archiveMonth - a.catalog.archiveMonth;
       });
@@ -271,17 +353,18 @@ function buildNuvioCollectionsImport(now = runtimeNow(), timeZone = DEFAULT_TIME
 function buildArchiveBlueprint(now = runtimeNow(), timeZone = DEFAULT_TIMEZONE, origin = null) {
   const collections = buildNuvioCollectionsImport(now, timeZone, origin);
   return {
-    schema: 'nuvio-calendar-archives-blueprint-v1.4.0',
+    schema: 'nuvio-calendar-archives-blueprint-v1.5.1',
     generatedForTimezone: timeZone,
     archiveMinYear: ARCHIVE_MIN_YEAR,
     visibleRollingYears: 2,
     prewiredFutureYears: ARCHIVE_PREWIRE_FUTURE_YEARS,
-    hierarchy: 'platform collection -> Series/Films folder -> month+year rows descending -> content',
+    dynamicPeriods: ARCHIVE_DYNAMIC_PERIODS.map((entry) => ({ key: entry.key, label: entry.label, period: entry.period })),
+    hierarchy: 'platform collection -> Series/Films folder -> dynamic periods -> month+year rows descending -> content',
     platformParents: PLATFORM_COLLECTIONS.map((entry) => entry.provider.label),
     collections,
     importPayload: collections,
     importPath: '/nuvio-collections.json',
-    note: 'Chaque plateforme est un parent Nuvio. Dans le parent, Séries et/ou Films sont les deux cartes Modern. En ouvrant une carte, les mois + années sont des lignes décroissantes. Les mois futurs sont pré-câblés mais vides; ils apparaissent automatiquement quand le mois commence. VOD est un parent Films uniquement. Les cartes utilisent les logos réels des plateformes via TMDb et un habillage Modern généré par le serveur.'
+    note: 'Chaque plateforme est un parent Nuvio. Dans le parent, Séries et/ou Films sont les cartes Modern. Chaque dossier commence par Aujourd’hui, Demain, Hier, Semaine passée et La semaine suivante, puis les mois + années décroissants. Les périodes suivent automatiquement la date locale. Les mois futurs sont pré-câblés et apparaissent automatiquement. Crunchyroll + Animes fusionne son catalogue streaming avec les animes AniList et ajoute aussi les films d’anime. VOD est Films uniquement. Les cartes utilisent les logos plateformes haute définition et un habillage vectoriel Modern.'
   };
 }
 
@@ -679,7 +762,7 @@ function isHomeCalendarPeriod(period) {
   if (/^archive-\d{4}-\d{2}$/.test(String(period || ''))) return true;
   // Archive rows must use exactly the same Shield / Android TV Modern landscape
   // decoration as the live Calendar project, even though showInHome=false in this addon.
-  return ['lastmonth', 'month', 'lastweek', 'past7', 'today', 'tomorrow', 'next7', 'nowplaying', 'upcomingyear', 'week'].includes(period);
+  return ['lastmonth', 'month', 'lastweek', 'past7', 'today', 'tomorrow', 'yesterday', 'nextweek', 'next7', 'nowplaying', 'upcomingyear', 'week'].includes(period);
 }
 
 function calendarCardUrl(origin, meta, catalog, timeZone, layout = 'portrait', sourceOverride = null) {
@@ -1001,7 +1084,7 @@ function buildManifest(origin, now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) 
     id: 'com.nuvio.calendar.archives',
     version: VERSION,
     name: 'Nuvio Calendar Archives',
-    description: 'Archives Nuvio Shield Modern: plateforme → Séries/Films → mois+année décroissants automatiques. Logos réels via TMDb, VOD Films inclus, cartes 16:9 Modern.',
+    description: 'Archives Nuvio Shield Modern: plateforme → Séries/Films → périodes dynamiques puis mois+année. Crunchyroll + Animes, films d’anime inclus, VOD Films, covers HD 16:9.',
     logo: `${origin}/logo.svg`,
     background: `${origin}/background.svg`,
     resources: [
@@ -1196,7 +1279,7 @@ async function platformLogoAsset(providerSlug, type = 'movie') {
       platformLogoAssetCache.set(cacheKey, null);
       return null;
     }
-    const response = await fetch(`https://image.tmdb.org/t/p/w300${logoPath}`);
+    const response = await fetch(`https://image.tmdb.org/t/p/original${logoPath}`);
     if (!response.ok) {
       platformLogoAssetCache.set(cacheKey, null);
       return null;
@@ -1228,17 +1311,26 @@ function platformFallbackLogoSvg(providerSlug) {
   const provider = platformProviderDefinition(providerSlug);
   const label = escapeXml(provider?.label || 'Streaming');
   const accent = providerAccentColor(provider?.label || 'Streaming');
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="260" viewBox="0 0 900 260"><rect width="900" height="260" rx="42" fill="#080b11"/><rect x="0" y="0" width="18" height="260" rx="9" fill="${accent}"/><text x="70" y="170" fill="#fff" font-family="Arial,sans-serif" font-size="110" font-weight="900">${label}</text></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360"><rect width="1200" height="360" fill="none"/><text x="600" y="220" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="142" font-weight="900" letter-spacing="-5">${label}</text><rect x="360" y="278" width="480" height="12" rx="6" fill="${accent}"/></svg>`;
 }
 
-function platformBackdropSvg(providerSlug, logoDataUri = null) {
+function platformLogoLayer(providerSlug, logoDataUri, { x, y, width, height }) {
+  const provider = platformProviderDefinition(providerSlug);
+  const label = escapeXml(provider?.label || 'Streaming');
+  if (logoDataUri) {
+    return `<image href="${logoDataUri}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="xMidYMid meet"/>`;
+  }
+  const fontSize = label.length > 16 ? 94 : label.length > 10 ? 116 : 146;
+  return `<text x="${x + width / 2}" y="${y + height * 0.62}" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="900" letter-spacing="-4">${label}</text>`;
+}
+
+function platformBackdropSvg(providerSlug, type = 'movie', logoDataUri = null) {
   const provider = platformProviderDefinition(providerSlug);
   const label = escapeXml(provider?.label || 'Streaming');
   const accent = providerAccentColor(provider?.label || 'Streaming');
-  const logo = logoDataUri
-    ? `<image href="${logoDataUri}" x="1040" y="180" width="420" height="420" preserveAspectRatio="xMidYMid meet"/>`
-    : `<text x="1010" y="470" fill="#fff" font-family="Arial,sans-serif" font-size="120" font-weight="900">${label}</text>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#05070c"/><stop offset=".55" stop-color="#0b1019"/><stop offset="1" stop-color="${accent}" stop-opacity=".55"/></linearGradient><radialGradient id="r" cx="75%" cy="30%" r="60%"><stop stop-color="${accent}" stop-opacity=".52"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient></defs><rect width="1920" height="1080" fill="url(#g)"/><rect width="1920" height="1080" fill="url(#r)"/><circle cx="1560" cy="210" r="360" fill="${accent}" opacity=".12"/><path d="M0 820C420 650 750 950 1180 760s520-200 740-90v410H0z" fill="#000" opacity=".35"/>${logo}<text x="110" y="770" fill="#fff" font-family="Arial,sans-serif" font-size="88" font-weight="900">${label}</text><text x="115" y="842" fill="#d8e4f2" font-family="Arial,sans-serif" font-size="34" font-weight="700" letter-spacing="7">CALENDAR ARCHIVES</text></svg>`;
+  const typeLabel = type === 'series' ? 'SÉRIES' : 'FILMS';
+  const logo = platformLogoLayer(providerSlug, logoDataUri, { x: 360, y: 210, width: 1200, height: 390 });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#03050a"/><stop offset=".52" stop-color="#080d16"/><stop offset="1" stop-color="${accent}" stop-opacity=".50"/></linearGradient><linearGradient id="bar" x1="0" y1="0" x2="1" y2="0"><stop stop-color="${accent}"/><stop offset="1" stop-color="${accent}" stop-opacity=".12"/></linearGradient></defs><rect width="1920" height="1080" fill="url(#bg)"/><circle cx="1710" cy="130" r="390" fill="${accent}" opacity=".09"/><circle cx="220" cy="960" r="460" fill="${accent}" opacity=".07"/><path d="M0 790L730 470L1210 650L1920 310V1080H0Z" fill="#000" opacity=".22"/><path d="M0 858L690 585L1260 760L1920 490" fill="none" stroke="${accent}" stroke-opacity=".18" stroke-width="3"/>${logo}<rect x="110" y="835" width="1700" height="2" fill="#fff" opacity=".12"/><text x="110" y="925" fill="#fff" font-family="Arial,sans-serif" font-size="58" font-weight="900" letter-spacing="9">${typeLabel}</text><text x="110" y="986" fill="#b9c6d8" font-family="Arial,sans-serif" font-size="28" font-weight="700" letter-spacing="7">CALENDAR ARCHIVES · ${label}</text><rect x="110" y="1018" width="720" height="12" rx="6" fill="url(#bar)"/></svg>`;
 }
 
 function platformCategoryCardSvg(providerSlug, category = 'series', logoDataUri = null) {
@@ -1247,11 +1339,12 @@ function platformCategoryCardSvg(providerSlug, category = 'series', logoDataUri 
   const accent = providerAccentColor(provider?.label || 'Streaming');
   const isFilms = category === 'films';
   const categoryLabel = isFilms ? 'FILMS' : 'SÉRIES';
-  const subtitle = isFilms ? 'SORTIES STREAMING · PAR MOIS' : 'NOUVELLES SÉRIES · PAR MOIS';
-  const logo = logoDataUri
-    ? `<image href="${logoDataUri}" x="92" y="82" width="250" height="155" preserveAspectRatio="xMinYMid meet"/>`
-    : `<text x="92" y="180" fill="#fff" font-family="Arial,sans-serif" font-size="64" font-weight="900">${label}</text>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#05070b"/><stop offset=".6" stop-color="#0c1320"/><stop offset="1" stop-color="${accent}" stop-opacity=".72"/></linearGradient><radialGradient id="r" cx="78%" cy="20%" r="58%"><stop stop-color="${accent}" stop-opacity=".65"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient></defs><rect width="1600" height="900" rx="44" fill="url(#g)"/><rect width="1600" height="900" rx="44" fill="url(#r)"/><path d="M0 650C400 500 720 770 1060 620s410-180 540-120v400H0z" fill="#000" opacity=".42"/>${logo}${platformCategoryIcon(category)}<text x="92" y="590" fill="#fff" font-family="Arial,sans-serif" font-size="150" font-weight="900">${categoryLabel}</text><text x="100" y="675" fill="#dbe8f5" font-family="Arial,sans-serif" font-size="34" font-weight="700" letter-spacing="4">${subtitle}</text><rect x="96" y="738" width="480" height="12" rx="6" fill="${accent}"/><text x="96" y="812" fill="#a9bad0" font-family="Arial,sans-serif" font-size="28" font-weight="700">MOIS + ANNÉES · ORDRE DÉCROISSANT</text></svg>`;
+  const detailLabel = providerSlug === 'crunchyroll'
+    ? (isFilms ? 'FILMS D’ANIME + STREAMING' : 'CRUNCHYROLL + ANIMES')
+    : (isFilms ? 'STREAMING · VOD SELON PLATEFORME' : 'STREAMING · ÉPISODES + SORTIES');
+  const logo = platformLogoLayer(providerSlug, logoDataUri, { x: 220, y: 78, width: 1160, height: 430 });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#020409"/><stop offset=".58" stop-color="#080d15"/><stop offset="1" stop-color="${accent}" stop-opacity=".46"/></linearGradient><linearGradient id="accent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="${accent}"/><stop offset="1" stop-color="${accent}" stop-opacity=".15"/></linearGradient></defs><rect width="1600" height="900" rx="44" fill="url(#bg)"/><circle cx="1450" cy="80" r="280" fill="${accent}" opacity=".10"/><circle cx="180" cy="660" r="330" fill="${accent}" opacity=".07"/><path d="M0 500L520 330L930 480L1600 250V670L1080 820L530 690L0 840Z" fill="#fff" opacity=".025"/>${logo}<rect x="0" y="610" width="1600" height="290" fill="#02040a" opacity=".78"/><rect x="0" y="610" width="1600" height="4" fill="${accent}" opacity=".95"/><text x="92" y="770" fill="#fff" font-family="Arial,sans-serif" font-size="150" font-weight="900" letter-spacing="-5">${categoryLabel}</text><text x="100" y="836" fill="#c6d2e1" font-family="Arial,sans-serif" font-size="27" font-weight="700" letter-spacing="4">${detailLabel}</text><rect x="1110" y="746" width="390" height="64" rx="32" fill="#fff" fill-opacity=".07" stroke="#fff" stroke-opacity=".14"/><text x="1305" y="788" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="25" font-weight="800" letter-spacing="3">PÉRIODES + MOIS</text><rect x="100" y="868" width="620" height="10" rx="5" fill="url(#accent)"/></svg>`;
 }
 
 async function handlePlatformLogo(res, url) {
@@ -1271,9 +1364,9 @@ async function handlePlatformBackdrop(res, url) {
   const providerSlug = url.searchParams.get('provider') || '';
   const type = url.searchParams.get('type') === 'series' ? 'series' : 'movie';
   const provider = platformProviderDefinition(providerSlug);
-  if (!provider) return svg(res, platformBackdropSvg(''), 'public, max-age=3600');
+  if (!provider) return svg(res, platformBackdropSvg('', type, null), 'public, max-age=3600');
   const asset = await platformLogoAsset(providerSlug, type);
-  return svg(res, platformBackdropSvg(providerSlug, asset?.dataUri || null), 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000');
+  return svg(res, platformBackdropSvg(providerSlug, type, asset?.dataUri || null), 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000');
 }
 
 async function handlePlatformCategoryCard(res, url) {
@@ -2603,9 +2696,132 @@ async function buildCombinedCatalog({ catalog, timeZone, now = new Date(), perio
   return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
 }
 
+
+function crunchyrollAnimeDedupeKey(meta) {
+  const episode = releaseEpisodeToken(meta);
+  return [
+    normalizeTitle(meta?.name),
+    normalizeIsoDate(meta?.released) || '',
+    episode || ''
+  ].join(':');
+}
+
+async function buildCrunchyrollAnimeCatalog({ catalog, timeZone, now = new Date(), period = catalog.period, useCache = true }) {
+  const window = dateWindow(period, now, timeZone);
+  const key = catalogCacheKey({
+    providerSlug: 'crunchyroll+anime',
+    type: 'series',
+    period,
+    timeZone,
+    today: window.today,
+    sourceVersion: `${SOURCE_VERSION}-crunchyroll-anime`
+  });
+  if (useCache) {
+    const cached = catalogCache.get(key);
+    if (cached) return cached;
+  }
+
+  const stats = {
+    provider: 'Crunchyroll',
+    providerSlug: 'crunchyroll',
+    source: 'crunchyroll-anime-combined',
+    type: 'series',
+    period,
+    timezone: timeZone,
+    today: window.today,
+    start: window.start,
+    end: window.end,
+    sourceErrors: 0,
+    sources: {},
+    final: 0
+  };
+
+  if (window.empty) {
+    const result = { metas: [], stats };
+    return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
+  }
+
+  const crunchyCatalog = {
+    ...catalog,
+    providerSlug: 'crunchyroll',
+    cardProvider: 'Crunchyroll',
+    source: 'tmdb-streaming',
+    section: 'series-streaming'
+  };
+  const animeCatalog = {
+    ...catalog,
+    providerSlug: 'anime',
+    cardProvider: 'Crunchyroll',
+    name: 'Anime',
+    source: 'anilist-airing',
+    section: 'anime'
+  };
+
+  const [crunchyResult, animeResult] = await Promise.allSettled([
+    buildStreamingSeriesCatalog({ catalog: crunchyCatalog, timeZone, now, period, useCache }),
+    buildAnimeCatalog({ catalog: animeCatalog, timeZone, now, period, useCache })
+  ]);
+
+  const merged = new Map();
+  const consume = (result, sourceLabel) => {
+    if (result.status !== 'fulfilled') {
+      stats.sourceErrors += 1;
+      stats.sources[sourceLabel] = { error: true };
+      return;
+    }
+    const metas = result.value?.metas || [];
+    stats.sources[sourceLabel] = { error: false, final: metas.length };
+    for (const original of metas) {
+      const meta = { ...original };
+      // The user-facing parent is Crunchyroll: AniList anime is intentionally
+      // folded into this parent instead of appearing as a separate Anime branch.
+      meta._calendarProvider = 'Crunchyroll';
+      if (sourceLabel === 'AniList Anime') {
+        meta._calendarSource = 'anilist-airing';
+        meta.description = [
+          'Crunchyroll • Anime combiné',
+          meta.description
+        ].filter(Boolean).join('\n\n');
+      }
+      const dedupeKey = crunchyrollAnimeDedupeKey(meta);
+      const previous = merged.get(dedupeKey);
+      if (!previous) {
+        merged.set(dedupeKey, meta);
+        continue;
+      }
+      const previousTimed = Number.isFinite(previous._eventInstantMs);
+      const currentTimed = Number.isFinite(meta._eventInstantMs);
+      if (!previousTimed && currentTimed) merged.set(dedupeKey, meta);
+    }
+  };
+
+  consume(crunchyResult, 'Crunchyroll');
+  consume(animeResult, 'AniList Anime');
+
+  const historical = /^archive-\d{4}-\d{2}$/.test(String(period || '')) ||
+    ['yesterday', 'lastweek', 'lastmonth', 'past7'].includes(period);
+  const metas = [...merged.values()].sort((a, b) => {
+    const dateCmp = String(a.released || '').localeCompare(String(b.released || ''));
+    if (dateCmp) return historical ? -dateCmp : dateCmp;
+    const at = Number.isFinite(a._eventInstantMs) ? a._eventInstantMs : null;
+    const bt = Number.isFinite(b._eventInstantMs) ? b._eventInstantMs : null;
+    if (at !== null || bt !== null) {
+      if (at === null) return 1;
+      if (bt === null) return -1;
+      if (at !== bt) return historical ? bt - at : at - bt;
+    }
+    return String(a.name || '').localeCompare(String(b.name || ''), 'fr');
+  }).slice(0, getConfig().maxItems);
+
+  stats.final = metas.length;
+  const result = { metas, stats };
+  return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
+}
+
 async function buildCatalog(options) {
   const source = options.catalog.source;
   if (source === 'combined-calendar') return buildCombinedCatalog(options);
+  if (source === 'crunchyroll-anime-combined') return buildCrunchyrollAnimeCatalog(options);
   if (source === 'tvmaze-broadcast') return buildTvBroadcastCatalog(options);
   if (source === 'anilist-airing') return buildAnimeCatalog(options);
   if (source === 'tmdb-vod') return buildVodCatalog(options);
@@ -2620,13 +2836,16 @@ async function handleCatalog(req, res, type, catalogId, extras = {}, url = null)
   const now = runtimeNow();
   const catalog = resolveArchiveCatalog(catalogId, type, now, timeZone);
   if (!catalog) return json(res, 404, { metas: [] });
-  // Period is fixed by the archive catalog ID; query/extra cannot widen a month.
+  // Period is fixed by the archive catalog ID. Dynamic periods have stable IDs
+  // whose windows move with the viewer-local day; month IDs stay month-scoped.
   const period = catalog.period;
-  const monthWindow = dateWindow(period, now, timeZone);
-  const outsideRollingTwoYears = !archiveYearIsVisible(catalog.archiveYear, now, timeZone);
-  if (monthWindow.empty || outsideRollingTwoYears) {
+  const window = dateWindow(period, now, timeZone);
+  const outsideRollingTwoYears = Number.isInteger(catalog.archiveYear)
+    ? !archiveYearIsVisible(catalog.archiveYear, now, timeZone)
+    : false;
+  if (window.empty || outsideRollingTwoYears) {
     res.setHeader('Vary', 'x-vercel-ip-timezone');
-    res.setHeader('X-Nuvio-Calendar-Date', monthWindow.today);
+    res.setHeader('X-Nuvio-Calendar-Date', window.today);
     res.setHeader('X-Nuvio-Calendar-Period', period);
     res.setHeader('X-Nuvio-Calendar-Filter', 'all');
     res.setHeader('X-Nuvio-Calendar-Skip', '0');
@@ -2653,8 +2872,13 @@ async function handleCatalog(req, res, type, catalogId, extras = {}, url = null)
   res.setHeader('X-Nuvio-Calendar-Total', String(allMetas.length));
   res.setHeader('X-Nuvio-Calendar-Source-Errors', String(Number(result.stats?.sourceErrors || 0)));
   res.setHeader('Server-Timing', `calendar;dur=${Date.now() - startedAt}`);
-  const currentMonth = period === `archive-${monthWindow.today.slice(0, 7)}`;
-  const cacheControl = monthWindow.empty ? 'public, max-age=300, s-maxage=3600' : (currentMonth ? 'private, max-age=60' : 'public, max-age=300, s-maxage=21600, stale-while-revalidate=86400');
+  const currentMonth = period === `archive-${window.today.slice(0, 7)}`;
+  const dynamicPeriod = Boolean(catalog.archivePeriodKey);
+  const cacheControl = window.empty
+    ? 'public, max-age=300, s-maxage=3600'
+    : (dynamicPeriod || currentMonth
+      ? 'private, max-age=60'
+      : 'public, max-age=300, s-maxage=21600, stale-while-revalidate=86400');
   return json(res, 200, { metas: decoratedMetas }, cacheControl);
 }
 
@@ -2724,8 +2948,8 @@ async function handleHealth(req, res) {
       ok: false,
       version: VERSION,
       market: DEFAULT_COUNTRY,
-      mode: 'calendar-archives-modern-shield-v1.4',
-      archive: { minYear: ARCHIVE_MIN_YEAR, granularity: 'month', months: ARCHIVE_MONTHS_FR },
+      mode: 'calendar-archives-modern-shield-v1.5',
+      archive: { minYear: ARCHIVE_MIN_YEAR, granularity: 'periods+month', dynamicPeriods: ARCHIVE_DYNAMIC_PERIODS.map((entry) => entry.label), months: ARCHIVE_MONTHS_FR },
       filters: { movie: filterOptionsForType('movie').map((entry) => entry.label), series: filterOptionsForType('series').map((entry) => entry.label) },
       pageSize: getConfig().pageSize,
       cards: { enabled: getConfig().calendarCards, appendFirst: true, livePoster: '16:9 center-safe', portrait: '2:3', landscape: '16:9', androidTvSafeSvg: true },
@@ -2747,8 +2971,8 @@ async function handleHealth(req, res) {
       ok: true,
       version: VERSION,
       market: DEFAULT_COUNTRY,
-      mode: 'calendar-archives-modern-shield-v1.4',
-      archive: { minYear: ARCHIVE_MIN_YEAR, granularity: 'month', months: ARCHIVE_MONTHS_FR },
+      mode: 'calendar-archives-modern-shield-v1.5',
+      archive: { minYear: ARCHIVE_MIN_YEAR, granularity: 'periods+month', dynamicPeriods: ARCHIVE_DYNAMIC_PERIODS.map((entry) => entry.label), months: ARCHIVE_MONTHS_FR },
       filters: { movie: filterOptionsForType('movie').map((entry) => entry.label), series: filterOptionsForType('series').map((entry) => entry.label) },
       pageSize: getConfig().pageSize,
       cards: { enabled: getConfig().calendarCards, appendFirst: true, livePoster: '16:9 center-safe', portrait: '2:3', landscape: '16:9', androidTvSafeSvg: true },
@@ -2766,8 +2990,8 @@ async function handleHealth(req, res) {
       ok: false,
       version: VERSION,
       market: DEFAULT_COUNTRY,
-      mode: 'calendar-archives-modern-shield-v1.4',
-      archive: { minYear: ARCHIVE_MIN_YEAR, granularity: 'month', months: ARCHIVE_MONTHS_FR },
+      mode: 'calendar-archives-modern-shield-v1.5',
+      archive: { minYear: ARCHIVE_MIN_YEAR, granularity: 'periods+month', dynamicPeriods: ARCHIVE_DYNAMIC_PERIODS.map((entry) => entry.label), months: ARCHIVE_MONTHS_FR },
       filters: { movie: filterOptionsForType('movie').map((entry) => entry.label), series: filterOptionsForType('series').map((entry) => entry.label) },
       pageSize: getConfig().pageSize,
       cards: { enabled: getConfig().calendarCards, appendFirst: true, livePoster: '16:9 center-safe', portrait: '2:3', landscape: '16:9', androidTvSafeSvg: true },
@@ -2787,7 +3011,7 @@ async function handleDebugProvider(req, res, providerSlug, url) {
   if (!getConfig().debug) return json(res, 404, { error: 'Not found' }, 'no-store');
   const definition = PROVIDER_BY_SLUG.get(providerSlug);
   if (!definition) return json(res, 404, { error: 'Unknown provider' }, 'no-store');
-  const period = ['lastmonth', 'lastweek', 'today', 'tomorrow', 'next7', 'month', 'past7', 'week', 'upcoming'].includes(url.searchParams.get('period'))
+  const period = ['lastmonth', 'lastweek', 'today', 'tomorrow', 'yesterday', 'nextweek', 'next7', 'month', 'past7', 'week', 'upcoming'].includes(url.searchParams.get('period'))
     ? url.searchParams.get('period')
     : 'week';
   const timeZone = requestTimeZone(req);
@@ -2817,7 +3041,7 @@ async function handleDebugProvider(req, res, providerSlug, url) {
 
 async function handleDebugCatalog(req, res, type, period) {
   if (!getConfig().debug) return json(res, 404, { error: 'Not found' }, 'no-store');
-  if (!['movie', 'series'].includes(type) || !['lastmonth', 'lastweek', 'today', 'tomorrow', 'next7', 'month', 'past7', 'week'].includes(period)) {
+  if (!['movie', 'series'].includes(type) || !['lastmonth', 'lastweek', 'today', 'tomorrow', 'yesterday', 'nextweek', 'next7', 'month', 'past7', 'week'].includes(period)) {
     return json(res, 400, { error: 'Invalid type or period' }, 'no-store');
   }
   const timeZone = requestTimeZone(req);
@@ -2910,7 +3134,7 @@ function landing(origin, timeZone = DEFAULT_TIMEZONE) {
   const configured = Boolean(getConfig().token || getConfig().apiKey);
   const { year, month } = archiveNowParts(runtimeNow(), timeZone);
   const currentMonth = ARCHIVE_MONTHS_FR[month - 1];
-  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nuvio Calendar Archives</title><style>body{margin:0;background:#050a12;color:#f8fbff;font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}.card{max-width:980px;margin:24px;padding:32px;border:1px solid #17365e;border-radius:24px;background:linear-gradient(145deg,#08111f,#0a2344)}h1{margin-top:0}.pill{display:inline-block;background:#0b67c2;padding:8px 14px;border-radius:999px;font-weight:800}code{display:block;overflow-wrap:anywhere;background:#030912;padding:14px;border-radius:12px;margin:14px 0}a{color:#58c7ff}.muted{color:#a9bdd4}.ok{color:#7ee787}.bad{color:#ff7b72}</style></head><body><main class="card"><span class="pill">ARCHIVES MODERN SHIELD · PLATEFORMES</span><h1>Nuvio Calendar Archives ${VERSION}</h1><p>Hiérarchie native : <b>plateforme → Séries / Films → mois + année → contenus</b>.</p><p>Parents : <b>Netflix, Prime Video, Disney+, Max, Apple TV+, Hulu, Paramount+, Peacock, Crunchyroll et VOD</b>. Crunchyroll contient Séries; VOD contient Films.</p><p>Dans chaque dossier, seules les deux années actives sont visibles. Aujourd’hui : <b>${currentMonth} ${year}</b> est le premier mois disponible de l’année courante; les mois futurs sont déjà câblés mais vides, donc Modern les masque. Quand septembre arrive, <b>Septembre ${year}</b> apparaît automatiquement au-dessus d’août sans réimport mensuel.</p><p>Visuels : cartes 16:9 Modern générées pour Séries / Films et <b>logos réels des plateformes récupérés via TMDb Watch Providers</b>.</p><p>Fuseau spectateur : <b>${timeZone}</b> — marché streaming : <b>US</b> — TMDb : <b class="${configured ? 'ok' : 'bad'}">${configured ? 'configuré' : 'clé manquante'}</b></p><p>Manifest :</p><code>${manifest}</code><p><a href="${manifest}">manifest.json</a> · <a href="${collectionsImport}">JSON Collections importable</a> · <a href="${blueprint}">blueprint</a> · <a href="${origin}/health">health</a></p><p class="muted">Pour avoir les vraies images sur la Shield, importe le JSON depuis l’URL déployée <b>/nuvio-collections.json</b> : il injecte automatiquement les URLs du déploiement dans les cartes et les backdrops.</p></main></body></html>`;
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nuvio Calendar Archives</title><style>body{margin:0;background:#050a12;color:#f8fbff;font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}.card{max-width:980px;margin:24px;padding:32px;border:1px solid #17365e;border-radius:24px;background:linear-gradient(145deg,#08111f,#0a2344)}h1{margin-top:0}.pill{display:inline-block;background:#0b67c2;padding:8px 14px;border-radius:999px;font-weight:800}code{display:block;overflow-wrap:anywhere;background:#030912;padding:14px;border-radius:12px;margin:14px 0}a{color:#58c7ff}.muted{color:#a9bdd4}.ok{color:#7ee787}.bad{color:#ff7b72}</style></head><body><main class="card"><span class="pill">ARCHIVES MODERN SHIELD · PLATEFORMES</span><h1>Nuvio Calendar Archives ${VERSION}</h1><p>Hiérarchie native : <b>plateforme → Séries / Films → périodes dynamiques → mois + année → contenus</b>.</p><p>Parents : <b>Netflix, Prime Video, Disney+, Max, Apple TV+, Hulu, Paramount+, Peacock, Crunchyroll et VOD</b>. Crunchyroll fusionne <b>Crunchyroll + animes AniList</b>; VOD contient Films.</p><p>Chaque dossier commence par <b>Aujourd’hui, Demain, Hier, Semaine passée, La semaine suivante</b>, puis les mois. Les cinq périodes se recalculent chaque jour selon le fuseau du spectateur. Aujourd’hui : <b>${currentMonth} ${year}</b> est le premier mois courant; quand septembre arrive, <b>Septembre ${year}</b> apparaît automatiquement sans réimport.</p><p>Visuels : cartes 16:9 Modern vectorielles, backgrounds nets et <b>logos plateforme TMDb en résolution originale, grands et centrés</b>, avec overlay Séries / Films.</p><p>Fuseau spectateur : <b>${timeZone}</b> — marché streaming : <b>US</b> — TMDb : <b class="${configured ? 'ok' : 'bad'}">${configured ? 'configuré' : 'clé manquante'}</b></p><p>Manifest :</p><code>${manifest}</code><p><a href="${manifest}">manifest.json</a> · <a href="${collectionsImport}">JSON Collections importable</a> · <a href="${blueprint}">blueprint</a> · <a href="${origin}/health">health</a></p><p class="muted">Pour avoir les vraies images sur la Shield, importe le JSON depuis l’URL déployée <b>/nuvio-collections.json</b> : il injecte automatiquement les URLs du déploiement dans les cartes et les backdrops.</p></main></body></html>`;
 }
 
 function archiveYearCardSvg(year, category = '') {
@@ -2951,7 +3175,7 @@ module.exports = async function handler(req, res) {
     if (path === '/archive-blueprint.json') return json(res, 200, buildArchiveBlueprint(runtimeNow(), requestTimeZone(req), origin), 'no-store');
 
     if (path === '/debug/time') return await handleDebugTime(req, res);
-    const debugCatalogMatch = path.match(/^\/debug\/catalog\/(movie|series)\/(month|past7|today|tomorrow|week)$/);
+    const debugCatalogMatch = path.match(/^\/debug\/catalog\/(movie|series)\/(month|past7|today|tomorrow|yesterday|lastweek|nextweek|week)$/);
     if (debugCatalogMatch) return await handleDebugCatalog(req, res, debugCatalogMatch[1], debugCatalogMatch[2]);
     const debugProviderMatch = path.match(/^\/debug\/provider\/([^/]+)$/);
     if (debugProviderMatch) return await handleDebugProvider(req, res, debugProviderMatch[1], url);
@@ -3002,12 +3226,15 @@ module.exports._internals = {
   ARCHIVE_SERIES_PROVIDERS,
   ARCHIVE_FILM_PROVIDERS,
   ARCHIVE_TYPES,
+  ARCHIVE_DYNAMIC_PERIODS,
   PLATFORM_COLLECTIONS,
   PLATFORM_COLLECTION_ID_OVERRIDES,
   archiveNowParts,
   archivePeriod,
   archiveCatalogId,
+  archiveDynamicCatalogId,
   archiveDescriptor,
+  archiveDynamicDescriptor,
   archivePrewiredYears,
   archiveYearIsVisible,
   buildArchiveCatalogEntries,
@@ -3086,6 +3313,7 @@ module.exports._internals = {
   buildStreamingSeriesCatalog,
   buildTvBroadcastCatalog,
   buildAnimeCatalog,
+  buildCrunchyrollAnimeCatalog,
   combinedLeafCatalogs,
   mergeCombinedMetas,
   buildCombinedCatalog,

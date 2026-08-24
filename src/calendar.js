@@ -135,6 +135,24 @@ function dateWindow(period = 'next7', now = new Date(), timeZone = DEFAULT_TIMEZ
     const tomorrow = addIsoDays(today, 1);
     return { start: tomorrow, end: tomorrow, kind: 'tomorrow', today };
   }
+  if (period === 'yesterday') {
+    const yesterday = addIsoDays(today, -1);
+    return { start: yesterday, end: yesterday, kind: 'yesterday', today, allowPast: true };
+  }
+  if (period === 'nextweek') {
+    // Next CALENDAR week, Monday -> Sunday, in viewer-local civil dates.
+    const todayNoon = new Date(`${today}T12:00:00Z`);
+    const day = todayNoon.getUTCDay();
+    const daysSinceMonday = (day + 6) % 7;
+    const currentMonday = addIsoDays(today, -daysSinceMonday);
+    const nextMonday = addIsoDays(currentMonday, 7);
+    return {
+      start: nextMonday,
+      end: addIsoDays(nextMonday, 6),
+      kind: 'nextweek',
+      today
+    };
+  }
   if (period === 'next7') {
     return { start: addIsoDays(today, 2), end: addIsoDays(today, 7), kind: 'next7', today };
   }

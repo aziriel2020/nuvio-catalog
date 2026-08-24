@@ -1,21 +1,23 @@
-# Nuvio Calendar Archives v1.4.0 — NVIDIA Shield / Modern
+# Nuvio Calendar Archives v1.5.1 — NVIDIA Shield / Modern
 
-Cette version adopte la structure native Nuvio demandée : **plateforme → Séries / Films → mois + année → contenus**.
+Cette version garde l’architecture native Nuvio validée et ajoute les périodes automatiques, la fusion Crunchyroll + animes et une refonte complète des visuels.
 
 ## Arborescence finale
 
 ```text
 Netflix
 ├── Séries
+│   ├── Aujourd’hui
+│   ├── Demain
+│   ├── Hier
+│   ├── Semaine passée
+│   ├── La semaine suivante
 │   ├── Août 2026
 │   ├── Juillet 2026
-│   ├── Juin 2026
 │   ├── ...
-│   ├── Janvier 2026
-│   ├── Décembre 2025
-│   └── ... → Janvier 2025
+│   └── Janvier 2025
 └── Films
-    └── mêmes mois en décroissant
+    └── mêmes périodes + mêmes mois
 
 Prime Video
 ├── Séries
@@ -45,60 +47,101 @@ Hulu
 ├── Séries
 └── Films
 
-Crunchyroll
-└── Séries
+Crunchyroll + Animes
+├── Séries
+│   └── Crunchyroll streaming + animes AniList combinés dans les mêmes lignes
+└── Films
+    └── films d’anime Crunchyroll/streaming dans les mêmes périodes + mois
 
 VOD
 └── Films
 ```
 
-## Mois automatiques
+## Les 5 périodes automatiques
 
-En août 2026, les premières lignes visibles sont `Août 2026`, `Juillet 2026`, etc. Les lignes de septembre à décembre 2026 existent déjà mais leur catalogue est vide, donc Nuvio Modern les masque.
+Les cinq premières lignes sont identiques dans tous les dossiers Séries / Films :
 
-Le 1er septembre 2026, `Septembre 2026` commence automatiquement à retourner ses contenus et apparaît au-dessus d'août. **Aucune réimportation mensuelle n'est nécessaire.**
+1. `Aujourd’hui`
+2. `Demain`
+3. `Hier`
+4. `Semaine passée`
+5. `La semaine suivante`
 
-La prochaine année est également pré-câblée pour permettre le passage 2026 → 2027 sans réimport immédiat. Les lignes qui sortent de la fenêtre glissante de deux années deviennent vides automatiquement.
+Elles utilisent des IDs de catalogue stables. Leur fenêtre de dates est recalculée côté serveur à partir du fuseau du spectateur.
 
-## Visuels Modern et logos réels
+Exemple le 24 août 2026 à Bruxelles :
 
-Chaque parent est une vraie Collection Nuvio portant le nom de la plateforme. Les cartes `Séries` et `Films` sont en **LANDSCAPE 16:9**, avec un habillage Modern sombre/premium.
+- Aujourd’hui : 24 août 2026
+- Demain : 25 août 2026
+- Hier : 23 août 2026
+- Semaine passée : 17 → 23 août 2026
+- La semaine suivante : 31 août → 6 septembre 2026
 
-Le serveur récupère le **vrai logo de la plateforme via l'annuaire TMDb Watch Providers**, puis l'intègre dans les cartes et le backdrop. Si TMDb est temporairement indisponible, un visuel de secours reste affichable.
+Le lendemain, les mêmes lignes restent en place mais leur contenu se décale automatiquement. **Aucune réimportation quotidienne ou hebdomadaire.**
+
+## Mois automatiques sur deux années visibles
+
+Après les cinq périodes viennent les mois en ordre décroissant.
+
+En août 2026 : `Août 2026`, `Juillet 2026`, ... `Janvier 2026`, puis `Décembre 2025` ... `Janvier 2025`.
+
+Les mois futurs sont déjà pré-câblés. En août, Septembre 2026 est vide et Nuvio Modern le masque. Dès septembre, il commence à retourner ses contenus et apparaît automatiquement avant Août 2026. **Aucune réimportation mensuelle.**
+
+Une année future est également pré-câblée pour le roulement annuel.
+
+## Crunchyroll + Animes + films d’anime
+
+La branche Anime séparée n’existe plus dans cette architecture.
+
+Toutes les lignes `Crunchyroll + Animes → Séries` fusionnent :
+
+- les sorties/séries Crunchyroll détectées côté streaming ;
+- les airings anime AniList convertis vers les métadonnées Nuvio/TMDb.
+
+Le parent **Crunchyroll + Animes** contient maintenant aussi un dossier **Films** pour les films d’anime / films streaming liés à Crunchyroll.
+
+## Covers Modern HD
+
+Les cartes `Séries` et `Films` restent en `LANDSCAPE` 16:9.
+
+La v1.5.1 change le rendu :
+
+- logo de plateforme beaucoup plus grand et centré ;
+- logo TMDb Watch Provider chargé en résolution `original` au lieu de `w300` ;
+- fond 1920×1080 entièrement vectoriel pour éviter la pixellisation ;
+- overlay `SÉRIES` / `FILMS` conservé ;
+- indication `PÉRIODES + MOIS` ;
+- carte Crunchyroll Séries marquée `CRUNCHYROLL + ANIMES` et carte Films marquée `FILMS D’ANIME + STREAMING`.
 
 Routes visuelles :
 
-- `/platform-category-card.svg?provider=netflix&category=series`
-- `/platform-category-card.svg?provider=netflix&category=films`
-- `/platform-backdrop.svg?provider=netflix&type=movie`
-- `/platform-logo?provider=netflix&type=movie`
+```text
+/platform-category-card.svg?provider=netflix&category=series
+/platform-category-card.svg?provider=netflix&category=films
+/platform-backdrop.svg?provider=netflix&type=series
+/platform-backdrop.svg?provider=netflix&type=movie
+/platform-logo?provider=netflix&type=series
+```
 
-Pour obtenir les vrais visuels sur la Shield, il faut importer **le JSON depuis le déploiement** :
+Pour obtenir les covers hébergées sur la Shield, importe le JSON depuis le déploiement :
 
 ```text
 https://TON-DEPLOIEMENT/nuvio-collections.json
 ```
 
-Le fichier `nuvio-collections.json` inclus dans le ZIP sert aussi d'inspection/import de secours, mais sans URL de déploiement il ne peut pas contenir les covers hébergées.
+## Mise à jour depuis v1.4.0
 
-## Mise à jour depuis v1.3.0
+Après déploiement de v1.5.1 :
 
-Après avoir déployé v1.4.0 :
+1. mets à jour l’addon avec le nouveau `manifest.json` ;
+2. réimporte **une seule fois** `/nuvio-collections.json` pour ajouter les cinq périodes, le parent **Crunchyroll + Animes** et le dossier **Films** ;
+3. ensuite les changements de jour, semaine et mois se font automatiquement sans réimport.
 
-1. Mets à jour l'addon avec le `manifest.json` du nouveau déploiement.
-2. Réimporte **une seule fois** `/nuvio-collections.json` pour installer la nouvelle architecture.
-3. Ensuite, les nouveaux mois apparaissent automatiquement sans réimportation mensuelle.
-
-Les deux anciens IDs de Collections sont réutilisés :
-
-- `calendar-archives` devient **Netflix**
-- `calendar-archives-films` devient **Prime Video**
-
-Cela remplace proprement les deux parents v1.3 au lieu de laisser les anciennes lignes `Séries` / `Films` en doublon.
+Les IDs parents existants sont conservés pour remplacer proprement les Collections déjà importées.
 
 ## Configuration TMDb
 
-Le contenu et les logos réels utilisent TMDb. Configure soit :
+Le contenu streaming et les logos utilisent TMDb. Configure soit :
 
 ```text
 TMDB_READ_TOKEN=...
@@ -110,7 +153,7 @@ ou :
 TMDB_API_KEY=...
 ```
 
-Tu peux lancer :
+Puis, si nécessaire :
 
 ```bash
 npm run configure
@@ -122,4 +165,4 @@ npm run configure
 npm test
 ```
 
-La v1.4.0 contient des tests dédiés à la hiérarchie plateforme, aux cartes Modern, aux vrais logos TMDb, au VOD Films, au mois automatique de septembre, aux mois futurs sans appels réseau et au roulement des deux années.
+La suite vérifie notamment les cinq périodes, le changement automatique de date, l’ordre des sources, le passage août → septembre sans changement du JSON Collections, les mois futurs sans appel réseau, VOD Films, Crunchyroll + Animes, les films d’anime, et les covers Modern HD.
