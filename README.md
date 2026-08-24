@@ -1,125 +1,120 @@
-# Nuvio Calendar Archives v1.2.0 — Modern Shield
+# Nuvio Calendar Archives v1.4.0 — NVIDIA Shield / Modern
 
-Projet séparé du calendrier principal, pensé pour **Nuvio TV en layout Modern sur NVIDIA Shield**.
+Cette version adopte la structure native Nuvio demandée : **plateforme → Séries / Films → mois + année → contenus**.
 
-## Structure v1.2.0
-
-L’accueil Modern reçoit maintenant **deux Collections parentes épinglées** :
-
-- `📺 Séries`
-- `🎬 Films`
-
-Chacune contient les dossiers année :
-
-- `2026`
-- `2025`
-
-Le clic sur une année ouvre le **FolderDetail natif Nuvio** en `FOLLOW_LAYOUT`.
-
-Dans chaque année, les mois et les services sont **séparés en vraies lignes Modern**. Exemple pour Séries 2026 :
+## Arborescence finale
 
 ```text
-Janvier 2026 — Netflix
-Janvier 2026 — Prime Video
-Janvier 2026 — Disney+
-Janvier 2026 — Max
-Janvier 2026 — Apple TV+
-...
-Février 2026 — Netflix
-Février 2026 — Prime Video
-...
-Décembre 2026 — Crunchyroll
+Netflix
+├── Séries
+│   ├── Août 2026
+│   ├── Juillet 2026
+│   ├── Juin 2026
+│   ├── ...
+│   ├── Janvier 2026
+│   ├── Décembre 2025
+│   └── ... → Janvier 2025
+└── Films
+    └── mêmes mois en décroissant
+
+Prime Video
+├── Séries
+└── Films
+
+Disney+
+├── Séries
+└── Films
+
+Max
+├── Séries
+└── Films
+
+Apple TV+
+├── Séries
+└── Films
+
+Paramount+
+├── Séries
+└── Films
+
+Peacock
+├── Séries
+└── Films
+
+Hulu
+├── Séries
+└── Films
+
+Crunchyroll
+└── Séries
+
+VOD
+└── Films
 ```
 
-### Services Séries
+## Mois automatiques
 
-Netflix, Prime Video, Disney+, Max, Apple TV+, Hulu, Paramount+, Peacock, Crunchyroll.
+En août 2026, les premières lignes visibles sont `Août 2026`, `Juillet 2026`, etc. Les lignes de septembre à décembre 2026 existent déjà mais leur catalogue est vide, donc Nuvio Modern les masque.
 
-### Services Films
+Le 1er septembre 2026, `Septembre 2026` commence automatiquement à retourner ses contenus et apparaît au-dessus d'août. **Aucune réimportation mensuelle n'est nécessaire.**
 
-Netflix, Prime Video, Disney+, Max, Apple TV+, Hulu, Paramount+, Peacock.
+La prochaine année est également pré-câblée pour permettre le passage 2026 → 2027 sans réimport immédiat. Les lignes qui sortent de la fenêtre glissante de deux années deviennent vides automatiquement.
 
-Les catalogues addon restent tous `showInHome: false` : **seules les deux Collections parentes apparaissent sur l’accueil**.
+## Visuels Modern et logos réels
 
-## Migration depuis v1.1.1
+Chaque parent est une vraie Collection Nuvio portant le nom de la plateforme. Les cartes `Séries` et `Films` sont en **LANDSCAPE 16:9**, avec un habillage Modern sombre/premium.
 
-La Collection Séries réutilise volontairement l’ID historique `calendar-archives`. En réimportant le nouveau JSON, Nuvio **remplace donc l’ancienne ligne `🗄️ Calendar Archives` par `📺 Séries`** au lieu de laisser un doublon.
+Le serveur récupère le **vrai logo de la plateforme via l'annuaire TMDb Watch Providers**, puis l'intègre dans les cartes et le backdrop. Si TMDb est temporairement indisponible, un visuel de secours reste affichable.
 
-La nouvelle Collection Films utilise `calendar-archives-films`.
+Routes visuelles :
 
-## Pourquoi chaque service a son propre catalogue
+- `/platform-category-card.svg?provider=netflix&category=series`
+- `/platform-category-card.svg?provider=netflix&category=films`
+- `/platform-backdrop.svg?provider=netflix&type=movie`
+- `/platform-logo?provider=netflix&type=movie`
 
-Dans FolderDetail `FOLLOW_LAYOUT`, Nuvio Modern utilise le **nom du catalogue du manifest** comme titre de ligne. Pour obtenir réellement :
+Pour obtenir les vrais visuels sur la Shield, il faut importer **le JSON depuis le déploiement** :
 
 ```text
-Janvier 2026 — Netflix
-Janvier 2026 — Prime Video
+https://TON-DEPLOIEMENT/nuvio-collections.json
 ```
 
-et non plusieurs lignes toutes nommées seulement `Janvier 2026`, chaque combinaison **type + mois + service** possède donc un ID catalogue propre.
+Le fichier `nuvio-collections.json` inclus dans le ZIP sert aussi d'inspection/import de secours, mais sans URL de déploiement il ne peut pas contenir les covers hébergées.
 
-Pour 2026 + 2025, cela donne 408 catalogues cachés au manifest :
+## Mise à jour depuis v1.3.0
 
-- Séries : `12 mois × 9 services × 2 années = 216`
-- Films : `12 mois × 8 services × 2 années = 192`
+Après avoir déployé v1.4.0 :
 
-Ils ne polluent pas l’accueil car `showInHome=false`.
+1. Mets à jour l'addon avec le `manifest.json` du nouveau déploiement.
+2. Réimporte **une seule fois** `/nuvio-collections.json` pour installer la nouvelle architecture.
+3. Ensuite, les nouveaux mois apparaissent automatiquement sans réimportation mensuelle.
 
-## Mois futurs = zéro appel réseau
+Les deux anciens IDs de Collections sont réutilisés :
 
-Les lignes futures sont déjà présentes pour garder Janvier → Décembre stable toute l’année, mais la route catalogue répond immédiatement :
+- `calendar-archives` devient **Netflix**
+- `calendar-archives-films` devient **Prime Video**
 
-```json
-{"metas":[]}
-```
+Cela remplace proprement les deux parents v1.3 au lieu de laisser les anciennes lignes `Séries` / `Films` en doublon.
 
-avant toute résolution provider/TMDb. Exemple au 24 août 2026 : Septembre → Décembre 2026 sont visibles mais vides et ne déclenchent aucun appel upstream.
+## Configuration TMDb
 
-## Modern Shield
-
-Les Collections sont `pinToTop: true`, les cartes année sont `LANDSCAPE`, et les contenus utilisent le rendu Calendar 16:9 / Blue Overlay XXL déjà présent dans le projet.
-
-Les cartes année dynamiques sont servies par :
+Le contenu et les logos réels utilisent TMDb. Configure soit :
 
 ```text
-/archive-year-card.svg?year=2026&category=series
-/archive-year-card.svg?year=2026&category=films
+TMDB_READ_TOKEN=...
 ```
 
-## Import Nuvio
-
-Le serveur déployé expose :
+ou :
 
 ```text
-/nuvio-collections.json
+TMDB_API_KEY=...
 ```
 
-C’est le meilleur import car les URLs des cartes année utilisent automatiquement le domaine du déploiement.
+Tu peux lancer :
 
-Le ZIP contient aussi un fichier local :
-
-```text
-nuvio-collections.json
+```bash
+npm run configure
 ```
-
-Il est directement compatible avec le nom de fichier recherché par Nuvio dans Downloads, mais ses covers année sont nulles tant qu’aucun domaine de déploiement n’est connu.
-
-Ordre recommandé :
-
-1. déployer / mettre à jour l’addon `com.nuvio.calendar.archives` ;
-2. mettre à jour l’addon dans Nuvio avec son `manifest.json` ;
-3. réimporter `/nuvio-collections.json` ou le fichier local `nuvio-collections.json`.
-
-## Déploiement Vercel
-
-Variables :
-
-- `TMDB_READ_TOKEN` recommandé, ou `TMDB_API_KEY`
-- optionnels : `TMDB_LANGUAGE=en-US`, `PAGE_SIZE=60`, `MAX_ITEMS=240`, `MAX_CANDIDATES=120`
-
-Aucun secret n’est inclus.
-
-Manifest ID : `com.nuvio.calendar.archives`
 
 ## Tests
 
@@ -127,4 +122,4 @@ Manifest ID : `com.nuvio.calendar.archives`
 npm test
 ```
 
-La suite v1.2.0 valide la hiérarchie Séries/Films → 2026/2025 → mois/service, les 408 catalogues provider-specific, l’upgrade sans doublon de l’ancienne Collection, le rendu Modern et le zéro appel upstream pour les mois futurs.
+La v1.4.0 contient des tests dédiés à la hiérarchie plateforme, aux cartes Modern, aux vrais logos TMDb, au VOD Films, au mois automatique de septembre, aux mois futurs sans appels réseau et au roulement des deux années.

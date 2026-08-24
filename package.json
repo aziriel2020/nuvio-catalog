@@ -1,8 +1,8 @@
 {
   "name": "nuvio-calendar-archives",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "private": true,
-  "description": "Nuvio Calendar Archives v1.2.0: Shield Modern parents Séries/Films, year folders, month/service rows separated by streaming platform.",
+  "description": "Nuvio Calendar Archives v1.4.0: plateforme → Séries/Films → mois+année décroissants automatiques, logos réels TMDb, VOD Films, NVIDIA Shield Modern.",
   "scripts": {
     "test": "node --test",
     "start": "node local-server.js",
