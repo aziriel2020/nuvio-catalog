@@ -12,48 +12,41 @@ test('archive windows',()=>{
   assert.equal(calendar.dateWindow('archive-2026-09',fixedNow,tz).empty,true);
 });
 
-test('one combined catalog per month from current year to 2025',()=>{
+test('catalogs are split by parent type, month and streaming service',()=>{
   const e=api._internals.buildArchiveCatalogEntries(fixedNow,tz);
-  assert.equal(e.length,24);
-  assert.equal(e[0].id,'archives-v1-month-2026-01');
-  assert.equal(e.at(-1).id,'archives-v1-month-2025-12');
-  assert(e.every(x=>x.catalog.section==='archive-month'));
+  const expectedPerYear=12*(api._internals.ARCHIVE_SERIES_PROVIDERS.length+api._internals.ARCHIVE_FILM_PROVIDERS.length);
+  assert.equal(e.length,expectedPerYear*2);
+  assert.equal(e[0].id,'archives-v2-series-netflix-2026-01');
+  assert.equal(e[0].catalog.name,'Janvier 2026 — Netflix');
+  assert.equal(e.at(-1).id,'archives-v2-movie-peacock-2025-12');
+  assert(e.every(x=>x.catalog.source==='tmdb-streaming'));
 });
 
-test('manifest is separate, hidden from normal Home, and has 24 monthly catalogs',()=>{
+test('manifest is hidden from normal Home and exposes provider-specific row names',()=>{
   const m=api._internals.buildManifest('https://archives.example',fixedNow,tz);
   assert.equal(m.id,'com.nuvio.calendar.archives');
-  assert.equal(m.version,'1.1.1');
-  assert.equal(m.catalogs.length,24);
-  assert(m.catalogs.every(c=>c.type==='series'));
+  assert.equal(m.version,'1.2.0');
+  assert.equal(m.catalogs.length,408);
   assert(m.catalogs.every(c=>c.showInHome===false));
   assert(m.catalogs.every(c=>c.extraSupported.includes('skip')));
+  assert(m.catalogs.some(c=>c.type==='series'&&c.name==='Janvier 2026 — Netflix'));
+  assert(m.catalogs.some(c=>c.type==='movie'&&c.name==='Janvier 2026 — Prime Video'));
 });
 
-test('combined month contains all four archive families',()=>{
-  const c=api._internals.resolveArchiveCatalog('archives-v1-month-2025-04','series',fixedNow,tz);
-  const leaves=api._internals.combinedLeafCatalogs(c);
-  assert.equal(leaves.length,20);
-  assert(leaves.some(x=>x.type==='series'&&x.section==='series-streaming'));
-  assert(leaves.some(x=>x.type==='movie'&&x.section==='films'&&x.source==='tmdb-streaming'));
-  assert(leaves.some(x=>x.source==='tmdb-vod'));
-  assert(leaves.some(x=>x.source==='anilist-airing'));
-  assert(leaves.some(x=>x.source==='tvmaze-broadcast'));
+test('series and film IDs resolve only with their correct Nuvio type',()=>{
+  const s=api._internals.resolveArchiveCatalog('archives-v2-series-netflix-2025-04','series',fixedNow,tz);
+  const m=api._internals.resolveArchiveCatalog('archives-v2-movie-netflix-2025-04','movie',fixedNow,tz);
+  assert.equal(s.type,'series');
+  assert.equal(s.providerSlug,'netflix');
+  assert.equal(m.type,'movie');
+  assert.equal(m.providerSlug,'netflix');
+  assert.equal(api._internals.resolveArchiveCatalog('archives-v2-series-netflix-2025-04','movie',fixedNow,tz),null);
 });
 
-test('mixed month merge preserves movie and series meta types',()=>{
-  const results=[
-    {leaf:{type:'movie',name:'Netflix',source:'tmdb-streaming'},result:{metas:[{id:'ttm',type:'movie',name:'Film',released:'2025-04-02'}]}},
-    {leaf:{type:'series',name:'TV USA',source:'tvmaze-broadcast'},result:{metas:[{id:'tts',type:'series',name:'Series',released:'2025-04-03'}]}}
-  ];
-  const metas=api._internals.mergeCombinedMetas(results,'series','archive-2025-04');
-  assert.deepEqual(new Set(metas.map(x=>x.type)),new Set(['movie','series']));
-});
-
-test('Shield Modern decoration is forced for archive months',()=>{
+test('Shield Modern decoration keeps real type and forces landscape card',()=>{
   assert.equal(api._internals.isHomeCalendarPeriod('archive-2025-04'),true);
-  const meta={id:'tt1234567',type:'movie',name:'Archive Film',poster:'https://image.tmdb.org/t/p/w500/demo.jpg',background:'https://image.tmdb.org/t/p/original/demo-bg.jpg',landscapePoster:'https://image.tmdb.org/t/p/original/demo-bg.jpg',releaseInfo:'4 avr. 2025',released:'2025-04-04',_calendarProvider:'Netflix',_calendarSource:'tmdb-digital'};
-  const c=api._internals.resolveArchiveCatalog('archives-v1-month-2025-04','series',fixedNow,tz);
+  const meta={id:'tt1234567',type:'movie',name:'Archive Film',poster:'https://image.tmdb.org/t/p/w500/demo.jpg',background:'https://image.tmdb.org/t/p/original/demo-bg.jpg',landscapePoster:'https://image.tmdb.org/t/p/original/demo-bg.jpg',releaseInfo:'4 avr. 2025',released:'2025-04-04',_calendarProvider:'Netflix',_calendarSource:'tmdb-streaming'};
+  const c=api._internals.resolveArchiveCatalog('archives-v2-movie-netflix-2025-04','movie',fixedNow,tz);
   const [d]=api._internals.decorateCatalogMetas('https://archives.example',[meta],c,tz);
   assert.equal(d.type,'movie');
   assert.equal(d.posterShape,'landscape');
@@ -62,56 +55,75 @@ test('Shield Modern decoration is forced for archive months',()=>{
   assert.match(d.releaseInfo,/NETFLIX/);
 });
 
-test('future month can be prewired and is empty',()=>{
-  const c=api._internals.resolveArchiveCatalog('archives-v1-month-2026-12','series',fixedNow,tz);
-  assert(c);
-  assert.equal(calendar.dateWindow(c.period,fixedNow,tz).empty,true);
-});
-
-test('reject pre-2025, wrong type and old four-section ids',()=>{
-  assert.equal(api._internals.resolveArchiveCatalog('archives-v1-month-2024-12','series',fixedNow,tz),null);
-  assert.equal(api._internals.resolveArchiveCatalog('archives-v1-month-2025-01','movie',fixedNow,tz),null);
-  assert.equal(api._internals.resolveArchiveCatalog('archives-v1-series-2025-01','series',fixedNow,tz),null);
-});
-
-test('Nuvio import payload is a top-level collection array',()=>{
+test('Nuvio import payload has exactly two pinned parent collections',()=>{
   const payload=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
   assert(Array.isArray(payload));
-  assert.equal(payload.length,1);
-  assert.equal(payload[0].id,'calendar-archives');
-  assert.equal(payload[0].viewMode,'FOLLOW_LAYOUT');
-  assert.equal(payload[0].showAllTab,false);
-  assert.equal(payload[0].pinToTop,true);
+  assert.equal(payload.length,2);
+  assert.deepEqual(payload.map(c=>c.title),['📺 Séries','🎬 Films']);
+  assert.deepEqual(payload.map(c=>c.id),['calendar-archives','calendar-archives-films']);
+  assert(payload.every(c=>c.viewMode==='FOLLOW_LAYOUT'));
+  assert(payload.every(c=>c.showAllTab===false));
+  assert(payload.every(c=>c.pinToTop===true));
 });
 
-test('Shield Modern home row is pinned before addon catalogs',()=>{
-  const [collection]=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
-  assert.equal(collection.pinToTop,true);
-  assert.equal(collection.viewMode,'FOLLOW_LAYOUT');
-  assert.equal(collection.folders.length,2);
-  assert(collection.folders.every(f=>f.tileShape==='LANDSCAPE'));
-  assert(collection.folders.every(f=>/^https:\/\/archives\.example\/archive-year-card\.svg\?year=20\d{2}$/.test(f.coverImageUrl)));
+test('old calendar-archives collection id is reused by Series parent for clean upgrade',()=>{
+  const [series]=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
+  assert.equal(series.id,'calendar-archives');
+  assert.equal(series.title,'📺 Séries');
 });
 
-test('year folders are 2026 and 2025 with exactly 12 native rows each',()=>{
-  const [collection]=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
-  assert.deepEqual(collection.folders.map(f=>f.title),['2026','2025']);
-  assert(collection.folders.every(f=>f.sources.length===12));
-  assert(collection.folders.every(f=>f.catalogSources.length===12));
+test('each parent has child year cards 2026 and 2025',()=>{
+  const collections=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
+  for(const collection of collections){
+    assert.deepEqual(collection.folders.map(f=>f.title),['2026','2025']);
+    assert(collection.folders.every(f=>f.tileShape==='LANDSCAPE'));
+    assert(collection.folders.every(f=>/^https:\/\/archives\.example\/archive-year-card\.svg\?year=20\d{2}&category=(series|films)$/.test(f.coverImageUrl)));
+  }
 });
 
-test('folder sources point to installed addon id and transport type',()=>{
-  const [collection]=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
-  const sources=collection.folders.flatMap(f=>f.sources);
-  assert(sources.every(s=>s.provider==='addon'));
-  assert(sources.every(s=>s.addonId==='com.nuvio.calendar.archives'));
-  assert(sources.every(s=>s.type==='series'));
-  assert.equal(sources[0].catalogId,'archives-v1-month-2026-01');
+test('Series year has 12 months x 9 services in month-major row order',()=>{
+  const [series]=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
+  const y=series.folders[0];
+  assert.equal(y.sources.length,108);
+  assert.equal(y.catalogSources.length,108);
+  assert.equal(y.sources[0].catalogId,'archives-v2-series-netflix-2026-01');
+  assert.equal(y.sources[8].catalogId,'archives-v2-series-crunchyroll-2026-01');
+  assert.equal(y.sources[9].catalogId,'archives-v2-series-netflix-2026-02');
+  assert.equal(y.sources.at(-1).catalogId,'archives-v2-series-crunchyroll-2026-12');
 });
 
-test('year cards use landscape covers on deployed import',()=>{
-  const [collection]=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
-  assert(collection.folders.every(f=>f.tileShape==='LANDSCAPE'));
-  assert.equal(collection.folders[0].coverImageUrl,'https://archives.example/archive-year-card.svg?year=2026');
-  assert.match(api._internals.archiveYearCardSvg('2026'),/>2026<\/text>/);
+test('Films year has 12 months x 8 services in separate rows',()=>{
+  const films=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example')[1];
+  const y=films.folders[0];
+  assert.equal(y.sources.length,96);
+  assert.equal(y.catalogSources.length,96);
+  assert.equal(y.sources[0].catalogId,'archives-v2-movie-netflix-2026-01');
+  assert.equal(y.sources[7].catalogId,'archives-v2-movie-peacock-2026-01');
+  assert.equal(y.sources[8].catalogId,'archives-v2-movie-netflix-2026-02');
+  assert.equal(y.sources.at(-1).catalogId,'archives-v2-movie-peacock-2026-12');
+});
+
+test('folder sources use installed addon id and their real category type',()=>{
+  const [series,films]=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
+  assert(series.folders.flatMap(f=>f.sources).every(s=>s.provider==='addon'&&s.addonId==='com.nuvio.calendar.archives'&&s.type==='series'));
+  assert(films.folders.flatMap(f=>f.sources).every(s=>s.provider==='addon'&&s.addonId==='com.nuvio.calendar.archives'&&s.type==='movie'));
+});
+
+test('future month is prewired for every service',()=>{
+  const series=api._internals.resolveArchiveCatalog('archives-v2-series-netflix-2026-12','series',fixedNow,tz);
+  const film=api._internals.resolveArchiveCatalog('archives-v2-movie-prime-video-2026-12','movie',fixedNow,tz);
+  assert(series&&film);
+  assert.equal(calendar.dateWindow(series.period,fixedNow,tz).empty,true);
+  assert.equal(calendar.dateWindow(film.period,fixedNow,tz).empty,true);
+});
+
+test('reject pre-2025, wrong provider and legacy v1 IDs',()=>{
+  assert.equal(api._internals.resolveArchiveCatalog('archives-v2-series-netflix-2024-12','series',fixedNow,tz),null);
+  assert.equal(api._internals.resolveArchiveCatalog('archives-v2-series-made-up-2025-01','series',fixedNow,tz),null);
+  assert.equal(api._internals.resolveArchiveCatalog('archives-v1-month-2025-01','series',fixedNow,tz),null);
+});
+
+test('year card artwork names the selected parent category',()=>{
+  assert.match(api._internals.archiveYearCardSvg('2026','series'),/CALENDAR SÉRIES/);
+  assert.match(api._internals.archiveYearCardSvg('2026','films'),/CALENDAR FILMS/);
 });

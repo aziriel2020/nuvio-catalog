@@ -1,62 +1,114 @@
-# Nuvio Calendar Archives v1.1.1 — Modern Shield
+# Nuvio Calendar Archives v1.2.0 — Modern Shield
 
-Projet **séparé** du calendrier principal. Il ne remplace pas Nuvio Calendar Ultimate.
+Projet séparé du calendrier principal, pensé pour **Nuvio TV en layout Modern sur NVIDIA Shield**.
 
-La Collection est maintenant **`pinToTop: true`**. C’est indispensable sur l’accueil Modern de Nuvio : les Collections épinglées sont injectées avant les catalogues addon, alors qu’une Collection non épinglée peut se retrouver après la limite de lignes rendues et ne jamais apparaître sur la Shield.
+## Structure v1.2.0
 
-Résultat attendu sur l’accueil **Modern** : une ligne `🗄️ Calendar Archives` avec les **cases 16:9 `2026` et `2025`**. Le clic sur une case ouvre ensuite le **FolderDetail natif** avec Janvier → Décembre. Les 24 catalogues mensuels restent `showInHome: false` pour éviter d’inonder l’accueil avec 24 lignes séparées.
+L’accueil Modern reçoit maintenant **deux Collections parentes épinglées** :
 
-## Correctif v1.1.1 — affichage NVIDIA Shield Modern
+- `📺 Séries`
+- `🎬 Films`
 
-La navigation repose maintenant sur les **Collections/Folders natifs de Nuvio** :
+Chacune contient les dossiers année :
 
-- Collection `🗄️ Calendar Archives`
-- cartes année `2026`, `2025`, etc. en `LANDSCAPE`
-- clic sur une année → écran natif **FolderDetail** de Nuvio
-- exactement **12 lignes mensuelles** par année : Janvier → Décembre
-- exactement **1 catalogue combiné par mois** au lieu de 4 catalogues séparés
-- chaque mois combine : 📺 Séries Streaming + 🎬 Films/VOD US + 🎌 Anime/Crunchyroll + 🇺🇸 TV USA
-- mois futurs déjà câblés mais renvoyant immédiatement `metas: []` avec **0 appel upstream**
+- `2026`
+- `2025`
 
-Au 24 août 2026, Janvier→Août 2026 sont actifs, Septembre→Décembre 2026 sont vides, et 2025 est complet. Les mêmes IDs mensuels deviennent actifs automatiquement quand leur mois arrive.
+Le clic sur une année ouvre le **FolderDetail natif Nuvio** en `FOLLOW_LAYOUT`.
 
-## Pourquoi le catalogue mensuel est déclaré `series`
+Dans chaque année, les mois et les services sont **séparés en vraies lignes Modern**. Exemple pour Séries 2026 :
 
-Une source de Collection Nuvio doit pointer vers un type de catalogue addon précis. La v1.1 utilise `series` uniquement comme **type de transport** du catalogue mensuel. Les cartes retournées gardent chacune leur vrai champ `type` (`movie` ou `series`), que Nuvio utilise pour ouvrir correctement les fiches détail.
+```text
+Janvier 2026 — Netflix
+Janvier 2026 — Prime Video
+Janvier 2026 — Disney+
+Janvier 2026 — Max
+Janvier 2026 — Apple TV+
+...
+Février 2026 — Netflix
+Février 2026 — Prime Video
+...
+Décembre 2026 — Crunchyroll
+```
 
-Exemples d’IDs :
+### Services Séries
 
-- `archives-v1-month-2026-01`
-- `archives-v1-month-2026-12`
-- `archives-v1-month-2025-01`
-- `archives-v1-month-2025-12`
+Netflix, Prime Video, Disney+, Max, Apple TV+, Hulu, Paramount+, Peacock, Crunchyroll.
 
-## Modern View NVIDIA Shield
+### Services Films
 
-Même rendu validé que le Calendar principal : `posterShape=landscape`, carte Calendar 16:9 dans `background`, `landscapePoster` 16:9, logo transparent, artwork plein cadre, overlay bleu XXL, titre/date/heure/plateforme. `/meta` restaure le vrai backdrop sur la fiche détail.
+Netflix, Prime Video, Disney+, Max, Apple TV+, Hulu, Paramount+, Peacock.
 
-La Collection utilise `viewMode: FOLLOW_LAYOUT` et `pinToTop: true` : **la ligne des années est visible en haut de l’accueil Modern de la Shield**, puis FolderDetail suit le layout Modern après le clic.
+Les catalogues addon restent tous `showInHome: false` : **seules les deux Collections parentes apparaissent sur l’accueil**.
 
-Les cartes année utilisent `/archive-year-card.svg?year=2026` et `/archive-year-card.svg?year=2025` lorsque le JSON est récupéré depuis le serveur déployé.
+## Migration depuis v1.1.1
 
-## Import Nuvio Collections
+La Collection Séries réutilise volontairement l’ID historique `calendar-archives`. En réimportant le nouveau JSON, Nuvio **remplace donc l’ancienne ligne `🗄️ Calendar Archives` par `📺 Séries`** au lieu de laisser un doublon.
 
-Le serveur expose un payload directement importable :
+La nouvelle Collection Films utilise `calendar-archives-films`.
+
+## Pourquoi chaque service a son propre catalogue
+
+Dans FolderDetail `FOLLOW_LAYOUT`, Nuvio Modern utilise le **nom du catalogue du manifest** comme titre de ligne. Pour obtenir réellement :
+
+```text
+Janvier 2026 — Netflix
+Janvier 2026 — Prime Video
+```
+
+et non plusieurs lignes toutes nommées seulement `Janvier 2026`, chaque combinaison **type + mois + service** possède donc un ID catalogue propre.
+
+Pour 2026 + 2025, cela donne 408 catalogues cachés au manifest :
+
+- Séries : `12 mois × 9 services × 2 années = 216`
+- Films : `12 mois × 8 services × 2 années = 192`
+
+Ils ne polluent pas l’accueil car `showInHome=false`.
+
+## Mois futurs = zéro appel réseau
+
+Les lignes futures sont déjà présentes pour garder Janvier → Décembre stable toute l’année, mais la route catalogue répond immédiatement :
+
+```json
+{"metas":[]}
+```
+
+avant toute résolution provider/TMDb. Exemple au 24 août 2026 : Septembre → Décembre 2026 sont visibles mais vides et ne déclenchent aucun appel upstream.
+
+## Modern Shield
+
+Les Collections sont `pinToTop: true`, les cartes année sont `LANDSCAPE`, et les contenus utilisent le rendu Calendar 16:9 / Blue Overlay XXL déjà présent dans le projet.
+
+Les cartes année dynamiques sont servies par :
+
+```text
+/archive-year-card.svg?year=2026&category=series
+/archive-year-card.svg?year=2026&category=films
+```
+
+## Import Nuvio
+
+Le serveur déployé expose :
 
 ```text
 /nuvio-collections.json
 ```
 
-Le format racine est bien un **tableau JSON de Collections**, conforme à l’import Nuvio. Chaque Folder année contient à la fois :
+C’est le meilleur import car les URLs des cartes année utilisent automatiquement le domaine du déploiement.
 
-- `sources` — schéma Nuvio actuel ;
-- `catalogSources` — compatibilité avec les builds Nuvio plus anciens.
+Le ZIP contient aussi un fichier local :
 
-Le fichier local `docs/nuvio-collections-2026-2025.json` contient le même import sans URL de cover dépendante du déploiement.
+```text
+nuvio-collections.json
+```
 
-`/archive-blueprint.json` reste disponible pour inspection et contient aussi `importPayload`.
+Il est directement compatible avec le nom de fichier recherché par Nuvio dans Downloads, mais ses covers année sont nulles tant qu’aucun domaine de déploiement n’est connu.
 
-> Important : installer d’abord l’addon `com.nuvio.calendar.archives`, puis importer la Collection. Les sources de Collection résolvent l’addon par son ID.
+Ordre recommandé :
+
+1. déployer / mettre à jour l’addon `com.nuvio.calendar.archives` ;
+2. mettre à jour l’addon dans Nuvio avec son `manifest.json` ;
+3. réimporter `/nuvio-collections.json` ou le fichier local `nuvio-collections.json`.
 
 ## Déploiement Vercel
 
@@ -75,4 +127,4 @@ Manifest ID : `com.nuvio.calendar.archives`
 npm test
 ```
 
-La suite v1.1.1 valide notamment : 24 catalogues mensuels pour 2026/2025, 12 sources par Folder année, payload d’import Nuvio en tableau, catalogue mensuel mixte, rendu Modern Shield et zéro appel réseau pour les mois futurs.
+La suite v1.2.0 valide la hiérarchie Séries/Films → 2026/2025 → mois/service, les 408 catalogues provider-specific, l’upgrade sans doublon de l’ancienne Collection, le rendu Modern et le zéro appel upstream pour les mois futurs.
