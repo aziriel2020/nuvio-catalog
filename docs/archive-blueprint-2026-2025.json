@@ -1,606 +1,609 @@
 {
-  "schema": "nuvio-calendar-archives-blueprint-v1",
+  "schema": "nuvio-calendar-archives-blueprint-v1.1",
   "generatedForTimezone": "Europe/Brussels",
   "archiveMinYear": 2025,
   "collection": {
     "id": "calendar-archives",
     "title": "🗄️ Calendar Archives",
+    "pinToTop": false,
+    "focusGlowEnabled": true,
     "viewMode": "FOLLOW_LAYOUT",
     "showAllTab": false,
     "folders": [
       {
         "id": "archives-2026",
         "title": "2026",
+        "coverImageUrl": null,
+        "focusGifEnabled": false,
         "coverEmoji": "🗓️",
         "tileShape": "LANDSCAPE",
+        "hideTitle": false,
         "sources": [
           {
+            "provider": "addon",
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-series-2026-01",
-            "title": "Janvier 2026 • 📺 Séries Streaming"
+            "catalogId": "archives-v1-month-2026-01"
           },
           {
+            "provider": "addon",
             "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-01",
-            "title": "Janvier 2026 • 🎬 Films + VOD"
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-02"
           },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-03"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-04"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-05"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-06"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-07"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-08"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-09"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-10"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-11"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-12"
+          }
+        ],
+        "catalogSources": [
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-anime-2026-01",
-            "title": "Janvier 2026 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-01",
-            "title": "Janvier 2026 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2026-02",
-            "title": "Février 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-02",
-            "title": "Février 2026 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2026-02",
-            "title": "Février 2026 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-02",
-            "title": "Février 2026 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2026-03",
-            "title": "Mars 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-03",
-            "title": "Mars 2026 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2026-03",
-            "title": "Mars 2026 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-03",
-            "title": "Mars 2026 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2026-04",
-            "title": "Avril 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-04",
-            "title": "Avril 2026 • 🎬 Films + VOD"
+            "catalogId": "archives-v1-month-2026-01"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-anime-2026-04",
-            "title": "Avril 2026 • 🎌 Anime + Crunchyroll"
+            "catalogId": "archives-v1-month-2026-02"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-04",
-            "title": "Avril 2026 • 🇺🇸 TV USA"
+            "catalogId": "archives-v1-month-2026-03"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-series-2026-05",
-            "title": "Mai 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-05",
-            "title": "Mai 2026 • 🎬 Films + VOD"
+            "catalogId": "archives-v1-month-2026-04"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-anime-2026-05",
-            "title": "Mai 2026 • 🎌 Anime + Crunchyroll"
+            "catalogId": "archives-v1-month-2026-05"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-05",
-            "title": "Mai 2026 • 🇺🇸 TV USA"
+            "catalogId": "archives-v1-month-2026-06"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-series-2026-06",
-            "title": "Juin 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-06",
-            "title": "Juin 2026 • 🎬 Films + VOD"
+            "catalogId": "archives-v1-month-2026-07"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-anime-2026-06",
-            "title": "Juin 2026 • 🎌 Anime + Crunchyroll"
+            "catalogId": "archives-v1-month-2026-08"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-06",
-            "title": "Juin 2026 • 🇺🇸 TV USA"
+            "catalogId": "archives-v1-month-2026-09"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-series-2026-07",
-            "title": "Juillet 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-07",
-            "title": "Juillet 2026 • 🎬 Films + VOD"
+            "catalogId": "archives-v1-month-2026-10"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-anime-2026-07",
-            "title": "Juillet 2026 • 🎌 Anime + Crunchyroll"
+            "catalogId": "archives-v1-month-2026-11"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-07",
-            "title": "Juillet 2026 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2026-08",
-            "title": "Août 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-08",
-            "title": "Août 2026 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2026-08",
-            "title": "Août 2026 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-08",
-            "title": "Août 2026 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2026-09",
-            "title": "Septembre 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-09",
-            "title": "Septembre 2026 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2026-09",
-            "title": "Septembre 2026 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-09",
-            "title": "Septembre 2026 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2026-10",
-            "title": "Octobre 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-10",
-            "title": "Octobre 2026 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2026-10",
-            "title": "Octobre 2026 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-10",
-            "title": "Octobre 2026 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2026-11",
-            "title": "Novembre 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-11",
-            "title": "Novembre 2026 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2026-11",
-            "title": "Novembre 2026 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-11",
-            "title": "Novembre 2026 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2026-12",
-            "title": "Décembre 2026 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2026-12",
-            "title": "Décembre 2026 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2026-12",
-            "title": "Décembre 2026 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2026-12",
-            "title": "Décembre 2026 • 🇺🇸 TV USA"
+            "catalogId": "archives-v1-month-2026-12"
           }
         ]
       },
       {
         "id": "archives-2025",
         "title": "2025",
+        "coverImageUrl": null,
+        "focusGifEnabled": false,
         "coverEmoji": "🗓️",
         "tileShape": "LANDSCAPE",
+        "hideTitle": false,
         "sources": [
           {
+            "provider": "addon",
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-series-2025-01",
-            "title": "Janvier 2025 • 📺 Séries Streaming"
+            "catalogId": "archives-v1-month-2025-01"
           },
           {
+            "provider": "addon",
             "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-01",
-            "title": "Janvier 2025 • 🎬 Films + VOD"
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-02"
           },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-03"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-04"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-05"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-06"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-07"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-08"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-09"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-10"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-11"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-12"
+          }
+        ],
+        "catalogSources": [
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-anime-2025-01",
-            "title": "Janvier 2025 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-01",
-            "title": "Janvier 2025 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2025-02",
-            "title": "Février 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-02",
-            "title": "Février 2025 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2025-02",
-            "title": "Février 2025 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-02",
-            "title": "Février 2025 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2025-03",
-            "title": "Mars 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-03",
-            "title": "Mars 2025 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2025-03",
-            "title": "Mars 2025 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-03",
-            "title": "Mars 2025 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2025-04",
-            "title": "Avril 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-04",
-            "title": "Avril 2025 • 🎬 Films + VOD"
+            "catalogId": "archives-v1-month-2025-01"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-anime-2025-04",
-            "title": "Avril 2025 • 🎌 Anime + Crunchyroll"
+            "catalogId": "archives-v1-month-2025-02"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-04",
-            "title": "Avril 2025 • 🇺🇸 TV USA"
+            "catalogId": "archives-v1-month-2025-03"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-series-2025-05",
-            "title": "Mai 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-05",
-            "title": "Mai 2025 • 🎬 Films + VOD"
+            "catalogId": "archives-v1-month-2025-04"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-anime-2025-05",
-            "title": "Mai 2025 • 🎌 Anime + Crunchyroll"
+            "catalogId": "archives-v1-month-2025-05"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-05",
-            "title": "Mai 2025 • 🇺🇸 TV USA"
+            "catalogId": "archives-v1-month-2025-06"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-series-2025-06",
-            "title": "Juin 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-06",
-            "title": "Juin 2025 • 🎬 Films + VOD"
+            "catalogId": "archives-v1-month-2025-07"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-anime-2025-06",
-            "title": "Juin 2025 • 🎌 Anime + Crunchyroll"
+            "catalogId": "archives-v1-month-2025-08"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-06",
-            "title": "Juin 2025 • 🇺🇸 TV USA"
+            "catalogId": "archives-v1-month-2025-09"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-series-2025-07",
-            "title": "Juillet 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-07",
-            "title": "Juillet 2025 • 🎬 Films + VOD"
+            "catalogId": "archives-v1-month-2025-10"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-anime-2025-07",
-            "title": "Juillet 2025 • 🎌 Anime + Crunchyroll"
+            "catalogId": "archives-v1-month-2025-11"
           },
           {
             "addonId": "com.nuvio.calendar.archives",
             "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-07",
-            "title": "Juillet 2025 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2025-08",
-            "title": "Août 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-08",
-            "title": "Août 2025 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2025-08",
-            "title": "Août 2025 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-08",
-            "title": "Août 2025 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2025-09",
-            "title": "Septembre 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-09",
-            "title": "Septembre 2025 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2025-09",
-            "title": "Septembre 2025 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-09",
-            "title": "Septembre 2025 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2025-10",
-            "title": "Octobre 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-10",
-            "title": "Octobre 2025 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2025-10",
-            "title": "Octobre 2025 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-10",
-            "title": "Octobre 2025 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2025-11",
-            "title": "Novembre 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-11",
-            "title": "Novembre 2025 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2025-11",
-            "title": "Novembre 2025 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-11",
-            "title": "Novembre 2025 • 🇺🇸 TV USA"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-series-2025-12",
-            "title": "Décembre 2025 • 📺 Séries Streaming"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "movie",
-            "catalogId": "archives-v1-films-2025-12",
-            "title": "Décembre 2025 • 🎬 Films + VOD"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-anime-2025-12",
-            "title": "Décembre 2025 • 🎌 Anime + Crunchyroll"
-          },
-          {
-            "addonId": "com.nuvio.calendar.archives",
-            "type": "series",
-            "catalogId": "archives-v1-tvusa-2025-12",
-            "title": "Décembre 2025 • 🇺🇸 TV USA"
+            "catalogId": "archives-v1-month-2025-12"
           }
         ]
       }
     ]
   },
-  "note": "Blueprint informatif: Nuvio Collections est local à l’application; l’addon ne peut pas injecter automatiquement ces dossiers. Toutes les sources Jan→Déc sont pré-déclarées afin que les mois futurs deviennent non vides automatiquement."
+  "importPayload": [
+    {
+      "id": "calendar-archives",
+      "title": "🗄️ Calendar Archives",
+      "pinToTop": false,
+      "focusGlowEnabled": true,
+      "viewMode": "FOLLOW_LAYOUT",
+      "showAllTab": false,
+      "folders": [
+        {
+          "id": "archives-2026",
+          "title": "2026",
+          "coverImageUrl": null,
+          "focusGifEnabled": false,
+          "coverEmoji": "🗓️",
+          "tileShape": "LANDSCAPE",
+          "hideTitle": false,
+          "sources": [
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-01"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-02"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-03"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-04"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-05"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-06"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-07"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-08"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-09"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-10"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-11"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-12"
+            }
+          ],
+          "catalogSources": [
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-01"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-02"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-03"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-04"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-05"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-06"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-07"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-08"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-09"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-10"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-11"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2026-12"
+            }
+          ]
+        },
+        {
+          "id": "archives-2025",
+          "title": "2025",
+          "coverImageUrl": null,
+          "focusGifEnabled": false,
+          "coverEmoji": "🗓️",
+          "tileShape": "LANDSCAPE",
+          "hideTitle": false,
+          "sources": [
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-01"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-02"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-03"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-04"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-05"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-06"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-07"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-08"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-09"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-10"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-11"
+            },
+            {
+              "provider": "addon",
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-12"
+            }
+          ],
+          "catalogSources": [
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-01"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-02"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-03"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-04"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-05"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-06"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-07"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-08"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-09"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-10"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-11"
+            },
+            {
+              "addonId": "com.nuvio.calendar.archives",
+              "type": "series",
+              "catalogId": "archives-v1-month-2025-12"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "importPath": "/nuvio-collections.json",
+  "note": "Le champ importPayload est directement importable par Nuvio. Chaque année contient exactement 12 sources mensuelles combinées; les mois futurs restent vides sans appel upstream."
 }

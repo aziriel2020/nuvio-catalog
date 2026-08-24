@@ -1,0 +1,302 @@
+[
+  {
+    "id": "calendar-archives",
+    "title": "🗄️ Calendar Archives",
+    "pinToTop": false,
+    "focusGlowEnabled": true,
+    "viewMode": "FOLLOW_LAYOUT",
+    "showAllTab": false,
+    "folders": [
+      {
+        "id": "archives-2026",
+        "title": "2026",
+        "coverImageUrl": null,
+        "focusGifEnabled": false,
+        "coverEmoji": "🗓️",
+        "tileShape": "LANDSCAPE",
+        "hideTitle": false,
+        "sources": [
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-01"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-02"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-03"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-04"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-05"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-06"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-07"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-08"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-09"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-10"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-11"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-12"
+          }
+        ],
+        "catalogSources": [
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-01"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-02"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-03"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-04"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-05"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-06"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-07"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-08"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-09"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-10"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-11"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2026-12"
+          }
+        ]
+      },
+      {
+        "id": "archives-2025",
+        "title": "2025",
+        "coverImageUrl": null,
+        "focusGifEnabled": false,
+        "coverEmoji": "🗓️",
+        "tileShape": "LANDSCAPE",
+        "hideTitle": false,
+        "sources": [
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-01"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-02"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-03"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-04"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-05"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-06"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-07"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-08"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-09"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-10"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-11"
+          },
+          {
+            "provider": "addon",
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-12"
+          }
+        ],
+        "catalogSources": [
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-01"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-02"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-03"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-04"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-05"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-06"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-07"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-08"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-09"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-10"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-11"
+          },
+          {
+            "addonId": "com.nuvio.calendar.archives",
+            "type": "series",
+            "catalogId": "archives-v1-month-2025-12"
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -32,7 +32,7 @@ const {
   normalizeTitle
 } = require('../src/calendar');
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const TVMAZE_BASE = 'https://api.tvmaze.com';
 const ANILIST_URL = 'https://graphql.anilist.co';
@@ -46,7 +46,7 @@ const PROVIDERS_TTL_MS = 6 * 60 * 60 * 1000;
 const TVMAZE_SCHEDULE_TTL_MS = 10 * 60 * 1000;
 const ANILIST_SCHEDULE_TTL_MS = 10 * 60 * 1000;
 const MAPPING_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-const SOURCE_VERSION = 'calendar-archives-v1-modern-shield';
+const SOURCE_VERSION = 'calendar-archives-v1.1-modern-shield';
 
 const PROVIDERS = [
   { slug: 'netflix', label: 'Netflix', aliases: ['Netflix', 'Netflix Standard with Ads'] },
@@ -64,6 +64,10 @@ const PROVIDER_BY_SLUG = new Map(PROVIDERS.map((provider) => [provider.slug, pro
 
 const ARCHIVE_MIN_YEAR = 2025;
 const ARCHIVE_ID_PREFIX = 'archives-v1';
+// Nuvio Collection sources require one declared addon catalog type. We use
+// `series` as the transport type, while every returned meta keeps its real
+// `movie`/`series` type. Nuvio's catalog mapper honors the meta-level type.
+const ARCHIVE_MONTH_CATALOG_TYPE = 'series';
 const ARCHIVE_MONTHS_FR = Object.freeze([
   'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
@@ -85,23 +89,24 @@ function archivePeriod(year, month) {
   return `archive-${year}-${String(month).padStart(2, '0')}`;
 }
 
-function archiveCatalogId(sectionKey, year, month) {
-  return `${ARCHIVE_ID_PREFIX}-${sectionKey}-${year}-${String(month).padStart(2, '0')}`;
+function archiveCatalogId(year, month) {
+  return `${ARCHIVE_ID_PREFIX}-month-${year}-${String(month).padStart(2, '0')}`;
 }
 
-function archiveDescriptor(section, year, month) {
+function archiveDescriptor(year, month) {
   const monthLabel = ARCHIVE_MONTHS_FR[month - 1];
   return {
-    type: section.type,
-    name: `${monthLabel} ${year} • ${section.label}`,
-    providerSlug: section.providerSlug,
+    type: ARCHIVE_MONTH_CATALOG_TYPE,
+    name: `${monthLabel} ${year}`,
+    providerSlug: 'calendar-month',
     period: archivePeriod(year, month),
     source: 'combined-calendar',
-    section: section.section,
+    section: 'archive-month',
+    noFilters: true,
     explore: true,
     archiveYear: year,
     archiveMonth: month,
-    archiveSection: section.key
+    archiveSection: 'all'
   };
 }
 
@@ -109,60 +114,85 @@ function buildArchiveCatalogEntries(now = runtimeNow(), timeZone = DEFAULT_TIMEZ
   const { year: currentYear } = archiveNowParts(now, timeZone);
   const entries = [];
   if (currentYear < ARCHIVE_MIN_YEAR) return entries;
-  // Predeclare Jan→Dec for every year. Future months are empty and make no upstream call.
-  // This lets a Nuvio Collection be wired once and self-populate month rows over time.
+  // Exactly ONE combined catalog per month. This is what lets FolderDetail render
+  // Jan→Dec as 12 native Nuvio rows instead of 48 section rows per year.
   for (let year = currentYear; year >= ARCHIVE_MIN_YEAR; year -= 1) {
     for (let month = 1; month <= 12; month += 1) {
-      for (const section of ARCHIVE_SECTIONS) {
-        entries.push({ id: archiveCatalogId(section.key, year, month), catalog: archiveDescriptor(section, year, month) });
-      }
+      entries.push({ id: archiveCatalogId(year, month), catalog: archiveDescriptor(year, month) });
     }
   }
   return entries;
 }
 
 function resolveArchiveCatalog(catalogId, type, now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) {
-  const m = String(catalogId || '').match(/^archives-v1-(series|films|anime|tvusa)-(\d{4})-(\d{2})$/);
+  const m = String(catalogId || '').match(/^archives-v1-month-(\d{4})-(\d{2})$/);
   if (!m) return null;
-  const section = ARCHIVE_SECTIONS.find((entry) => entry.key === m[1]);
-  const year = Number(m[2]);
-  const month = Number(m[3]);
+  const year = Number(m[1]);
+  const month = Number(m[2]);
   const { year: currentYear } = archiveNowParts(now, timeZone);
-  if (!section || section.type !== type || year < ARCHIVE_MIN_YEAR || year > currentYear || month < 1 || month > 12) return null;
-  return archiveDescriptor(section, year, month);
+  if (type !== ARCHIVE_MONTH_CATALOG_TYPE || year < ARCHIVE_MIN_YEAR || year > currentYear || month < 1 || month > 12) return null;
+  return archiveDescriptor(year, month);
 }
 
-function buildArchiveBlueprint(now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) {
+function collectionAddonSource(entry) {
+  return {
+    provider: 'addon',
+    addonId: 'com.nuvio.calendar.archives',
+    type: entry.catalog.type,
+    catalogId: entry.id
+  };
+}
+
+function collectionLegacyCatalogSource(entry) {
+  return {
+    addonId: 'com.nuvio.calendar.archives',
+    type: entry.catalog.type,
+    catalogId: entry.id
+  };
+}
+
+function buildNuvioCollectionsImport(now = runtimeNow(), timeZone = DEFAULT_TIMEZONE, origin = null) {
   const entries = buildArchiveCatalogEntries(now, timeZone);
   const byYear = new Map();
   for (const entry of entries) {
     const y = entry.catalog.archiveYear;
     if (!byYear.has(y)) byYear.set(y, []);
-    byYear.get(y).push({
-      addonId: 'com.nuvio.calendar.archives',
-      type: entry.catalog.type,
-      catalogId: entry.id,
-      title: entry.catalog.name
-    });
+    byYear.get(y).push(entry);
   }
+  const folders = [...byYear.entries()].map(([year, yearEntries]) => ({
+    id: `archives-${year}`,
+    title: String(year),
+    coverImageUrl: origin ? `${origin}/archive-year-card.svg?year=${year}` : null,
+    focusGifEnabled: false,
+    coverEmoji: '🗓️',
+    tileShape: 'LANDSCAPE',
+    hideTitle: false,
+    // `sources` is the current schema; `catalogSources` keeps compatibility with
+    // older Nuvio builds that imported addon-only collections before sources v2.
+    sources: yearEntries.map(collectionAddonSource),
+    catalogSources: yearEntries.map(collectionLegacyCatalogSource)
+  }));
+  return [{
+    id: 'calendar-archives',
+    title: '🗄️ Calendar Archives',
+    pinToTop: false,
+    focusGlowEnabled: true,
+    viewMode: 'FOLLOW_LAYOUT',
+    showAllTab: false,
+    folders
+  }];
+}
+
+function buildArchiveBlueprint(now = runtimeNow(), timeZone = DEFAULT_TIMEZONE, origin = null) {
+  const collections = buildNuvioCollectionsImport(now, timeZone, origin);
   return {
-    schema: 'nuvio-calendar-archives-blueprint-v1',
+    schema: 'nuvio-calendar-archives-blueprint-v1.1',
     generatedForTimezone: timeZone,
     archiveMinYear: ARCHIVE_MIN_YEAR,
-    collection: {
-      id: 'calendar-archives',
-      title: '🗄️ Calendar Archives',
-      viewMode: 'FOLLOW_LAYOUT',
-      showAllTab: false,
-      folders: [...byYear.entries()].map(([year, sources]) => ({
-        id: `archives-${year}`,
-        title: String(year),
-        coverEmoji: '🗓️',
-        tileShape: 'LANDSCAPE',
-        sources
-      }))
-    },
-    note: 'Blueprint informatif: Nuvio Collections est local à l’application; l’addon ne peut pas injecter automatiquement ces dossiers. Toutes les sources Jan→Déc sont pré-déclarées afin que les mois futurs deviennent non vides automatiquement.'
+    collection: collections[0],
+    importPayload: collections,
+    importPath: '/nuvio-collections.json',
+    note: 'Le champ importPayload est directement importable par Nuvio. Chaque année contient exactement 12 sources mensuelles combinées; les mois futurs restent vides sans appel upstream.'
   };
 }
 
@@ -356,10 +386,10 @@ function html(res, body) {
   res.end(body);
 }
 
-function svg(res, body) {
+function svg(res, body, cache = 'public, max-age=86400, s-maxage=86400') {
   res.statusCode = 200;
   res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
-  res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+  res.setHeader('Cache-Control', cache);
   res.end(body);
 }
 
@@ -882,7 +912,7 @@ function buildManifest(origin, now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) 
     id: 'com.nuvio.calendar.archives',
     version: VERSION,
     name: 'Nuvio Calendar Archives',
-    description: 'Projet séparé d’archives mensuelles de l’année courante jusqu’à 2025. Séries Streaming, Films + VOD, Anime + Crunchyroll et TV USA restent isolés. Cartes Modern Shield 16:9 Blue Overlay XXL.',
+    description: 'Archives mensuelles Nuvio: une Collection native avec dossiers par année et 12 catalogues combinés Janvier→Décembre. Séries Streaming, Films + VOD, Anime + Crunchyroll et TV USA sont réunis dans chaque mois. Modern Shield 16:9 Blue Overlay XXL.',
     logo: `${origin}/logo.svg`,
     background: `${origin}/background.svg`,
     resources: [
@@ -2161,6 +2191,24 @@ function combinedLeafCatalogs(catalogOrType) {
   const catalog = typeof catalogOrType === 'string' ? { type: catalogOrType, section: catalogOrType === 'movie' ? 'films' : 'series-streaming' } : catalogOrType;
   const type = catalog.type;
   const section = catalogSection(catalog);
+
+  if (section === 'archive-month') {
+    const seriesStreaming = STREAMING_PROVIDERS.map((provider) => ({
+      type: 'series', name: provider.label, providerSlug: provider.slug, period: 'today', source: 'tmdb-streaming', explore: false, section: 'series-streaming'
+    }));
+    const movieStreaming = STREAMING_PROVIDERS.map((provider) => ({
+      type: 'movie', name: provider.label, providerSlug: provider.slug, period: 'today', source: 'tmdb-streaming', explore: false, section: 'films'
+    }));
+    return [
+      ...seriesStreaming,
+      ...movieStreaming,
+      { type: 'movie', name: 'VOD US', providerSlug: 'vod-us', period: 'today', source: 'tmdb-vod', explore: false, section: 'films' },
+      { type: 'series', name: 'Crunchyroll', providerSlug: 'crunchyroll', period: 'today', source: 'tmdb-streaming', explore: false, section: 'anime' },
+      { type: 'series', name: 'Anime', providerSlug: 'anime', period: 'today', source: 'anilist-airing', explore: false, section: 'anime' },
+      { type: 'series', name: 'TV USA', providerSlug: 'tv-usa', period: 'today', source: 'tvmaze-broadcast', includeLowSignal: false, explore: false, section: 'tvusa' }
+    ];
+  }
+
   if (section === 'tvusa') return [{ type: 'series', name: 'TV USA', providerSlug: 'tv-usa', period: 'today', source: 'tvmaze-broadcast', includeLowSignal: false, explore: false, section: 'tvusa' }];
   if (section === 'anime') return [
     { type: 'series', name: 'Crunchyroll', providerSlug: 'crunchyroll', period: 'today', source: 'tmdb-streaming', explore: false, section: 'anime' },
@@ -2642,10 +2690,16 @@ async function handleDebugAiring(req, res, debugId) {
 function landing(origin, timeZone = DEFAULT_TIMEZONE) {
   const manifest = `${origin}/manifest.json`;
   const blueprint = `${origin}/archive-blueprint.json`;
+  const collectionsImport = `${origin}/nuvio-collections.json`;
   const configured = Boolean(getConfig().token || getConfig().apiKey);
   const { year } = archiveNowParts(runtimeNow(), timeZone);
   const years = year >= ARCHIVE_MIN_YEAR ? Array.from({ length: year - ARCHIVE_MIN_YEAR + 1 }, (_, i) => year - i) : [];
-  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nuvio Calendar Archives</title><style>body{margin:0;background:#050a12;color:#f8fbff;font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}.card{max-width:920px;margin:24px;padding:32px;border:1px solid #17365e;border-radius:24px;background:linear-gradient(145deg,#08111f,#0a2344)}h1{margin-top:0}.pill{display:inline-block;background:#0b67c2;padding:8px 14px;border-radius:999px;font-weight:800}code{display:block;overflow-wrap:anywhere;background:#030912;padding:14px;border-radius:12px;margin:14px 0}a{color:#58c7ff}.muted{color:#a9bdd4}.ok{color:#7ee787}.bad{color:#ff7b72}</style></head><body><main class="card"><span class="pill">PROJET SÉPARÉ • ARCHIVES MODERN SHIELD</span><h1>Nuvio Calendar Archives ${VERSION}</h1><p>Archives mensuelles dynamiques de <b>${years.join(', ') || ARCHIVE_MIN_YEAR}</b>, plancher ${ARCHIVE_MIN_YEAR}. Chaque année pré-déclare Janvier→Décembre : les mois futurs restent vides et ne font aucun appel, puis s’alimentent automatiquement quand la date arrive.</p><p>Design : <b>Modern View NVIDIA Shield</b>, carte 16:9, artwork cover plein cadre, background Calendar forcé, logo transparent et overlay bleu XXL identique au Calendar principal.</p><p>Sections séparées : 📺 Séries Streaming · 🎬 Films + VOD · 🎌 Anime + Crunchyroll · 🇺🇸 TV USA.</p><p>Fuseau spectateur : <b>${timeZone}</b> — marché streaming : <b>US</b> — TMDb : <b class="${configured ? 'ok' : 'bad'}">${configured ? 'configuré' : 'clé manquante'}</b></p><p>Manifest :</p><code>${manifest}</code><p><a href="${manifest}">manifest.json</a> · <a href="${blueprint}">blueprint Collections</a> · <a href="${origin}/health">health</a></p><p class="muted">Nuvio Collections/Folders est stocké côté application. L’addon fournit tous les catalogues mensuels et un blueprint prêt à câbler, mais il ne peut pas injecter lui-même le dossier 2025/2026 dans l’APK officiel. Une fois les 12 sources d’une année câblées, les mois futurs apparaissent sans réorganisation.</p></main></body></html>`;
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nuvio Calendar Archives</title><style>body{margin:0;background:#050a12;color:#f8fbff;font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}.card{max-width:920px;margin:24px;padding:32px;border:1px solid #17365e;border-radius:24px;background:linear-gradient(145deg,#08111f,#0a2344)}h1{margin-top:0}.pill{display:inline-block;background:#0b67c2;padding:8px 14px;border-radius:999px;font-weight:800}code{display:block;overflow-wrap:anywhere;background:#030912;padding:14px;border-radius:12px;margin:14px 0}a{color:#58c7ff}.muted{color:#a9bdd4}.ok{color:#7ee787}.bad{color:#ff7b72}</style></head><body><main class="card"><span class="pill">PROJET SÉPARÉ • ARCHIVES MODERN SHIELD</span><h1>Nuvio Calendar Archives ${VERSION}</h1><p>Archives mensuelles dynamiques de <b>${years.join(', ') || ARCHIVE_MIN_YEAR}</b>, plancher ${ARCHIVE_MIN_YEAR}. Chaque année pré-déclare Janvier→Décembre : les mois futurs restent vides et ne font aucun appel, puis s’alimentent automatiquement quand la date arrive.</p><p>Design : <b>Modern View NVIDIA Shield</b>, carte 16:9, artwork cover plein cadre, background Calendar forcé, logo transparent et overlay bleu XXL identique au Calendar principal.</p><p>Chaque mois est un <b>catalogue combiné unique</b> : 📺 Séries Streaming · 🎬 Films + VOD · 🎌 Anime + Crunchyroll · 🇺🇸 TV USA.</p><p>Fuseau spectateur : <b>${timeZone}</b> — marché streaming : <b>US</b> — TMDb : <b class="${configured ? 'ok' : 'bad'}">${configured ? 'configuré' : 'clé manquante'}</b></p><p>Manifest :</p><code>${manifest}</code><p><a href="${manifest}">manifest.json</a> · <a href="${collectionsImport}">JSON Collections importable</a> · <a href="${blueprint}">blueprint</a> · <a href="${origin}/health">health</a></p><p class="muted">Nuvio Collections/Folders est stocké côté application. Importe directement le JSON Collections : il crée les cartes année 2026/2025 et chaque clic ouvre FolderDetail avec 12 lignes Janvier→Décembre. Les mois futurs sont déjà câblés et restent à zéro appel réseau jusqu’à leur date.</p></main></body></html>`;
+}
+
+function archiveYearCardSvg(year) {
+  const safeYear = String(year || '').match(/^\d{4}$/)?.[0] || 'ARCHIVES';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#050a12"/><stop offset="0.58" stop-color="#07346a"/><stop offset="1" stop-color="#0b67c2"/></linearGradient><linearGradient id="o" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#118ee9" stop-opacity=".16"/><stop offset="1" stop-color="#002a5d" stop-opacity=".88"/></linearGradient></defs><rect width="1600" height="900" rx="42" fill="url(#g)"/><circle cx="1240" cy="180" r="330" fill="#38bdf8" opacity=".13"/><rect x="0" y="510" width="1600" height="390" fill="url(#o)"/><text x="90" y="170" fill="#64c9ff" font-family="Arial,sans-serif" font-size="42" font-weight="700" letter-spacing="8">CALENDAR ARCHIVES</text><text x="86" y="650" fill="#ffffff" font-family="Arial,sans-serif" font-size="230" font-weight="900">${safeYear}</text><text x="96" y="760" fill="#b9ddff" font-family="Arial,sans-serif" font-size="48" font-weight="700">JANVIER — DÉCEMBRE</text><rect x="86" y="805" width="520" height="10" rx="5" fill="#38bdf8"/></svg>`;
 }
 
 const LOGO = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#0b0f17"/><rect x="80" y="84" width="352" height="344" rx="76" fill="#171d2a" stroke="#38bdf8" stroke-width="18"/><path d="M128 188h256M128 260h256M128 332h172" stroke="#fff" stroke-width="26" stroke-linecap="round"/><text x="317" y="359" fill="#38bdf8" font-family="Arial,sans-serif" font-size="92" font-weight="700">CAL</text></svg>`;
@@ -2670,9 +2724,11 @@ module.exports = async function handler(req, res) {
     if (path === '/logo.svg') return svg(res, LOGO);
     if (path === '/background.svg') return svg(res, BG);
     if (path === '/calendar-transparent-logo.svg') return svg(res, '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="16" viewBox="0 0 64 16"><rect width="64" height="16" fill="none"/></svg>', 'public, max-age=31536000, immutable');
+    if (path === '/archive-year-card.svg') return svg(res, archiveYearCardSvg(url.searchParams.get('year')), 'public, max-age=86400, s-maxage=86400');
     if (path === '/calendar-card.svg') return await handleCalendarCard(res, url);
     if (path === '/health') return await handleHealth(req, res);
-    if (path === '/archive-blueprint.json') return json(res, 200, buildArchiveBlueprint(runtimeNow(), requestTimeZone(req)), 'no-store');
+    if (path === '/nuvio-collections.json' || path === '/collections.json') return json(res, 200, buildNuvioCollectionsImport(runtimeNow(), requestTimeZone(req), origin), 'no-store');
+    if (path === '/archive-blueprint.json') return json(res, 200, buildArchiveBlueprint(runtimeNow(), requestTimeZone(req), origin), 'no-store');
 
     if (path === '/debug/time') return await handleDebugTime(req, res);
     const debugCatalogMatch = path.match(/^\/debug\/catalog\/(movie|series)\/(month|past7|today|tomorrow|week)$/);
@@ -2720,6 +2776,7 @@ module.exports._internals = {
   PROVIDERS,
   ARCHIVE_MIN_YEAR,
   ARCHIVE_ID_PREFIX,
+  ARCHIVE_MONTH_CATALOG_TYPE,
   ARCHIVE_MONTHS_FR,
   ARCHIVE_SECTIONS,
   archiveNowParts,
@@ -2728,6 +2785,7 @@ module.exports._internals = {
   archiveDescriptor,
   buildArchiveCatalogEntries,
   resolveArchiveCatalog,
+  buildNuvioCollectionsImport,
   buildArchiveBlueprint,
   PERIOD_OPTIONS,
   FILM_EXTRA_CATALOGS,
@@ -2767,6 +2825,7 @@ module.exports._internals = {
   isHomeCalendarPeriod,
   decorateCatalogMetas,
   calendarCardSvg,
+  archiveYearCardSvg,
   calendarTitleProfile,
   normalizeProviderName,
   resolveProviderFromDirectory,
