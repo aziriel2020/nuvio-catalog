@@ -23,7 +23,7 @@ test('one combined catalog per month from current year to 2025',()=>{
 test('manifest is separate, hidden from normal Home, and has 24 monthly catalogs',()=>{
   const m=api._internals.buildManifest('https://archives.example',fixedNow,tz);
   assert.equal(m.id,'com.nuvio.calendar.archives');
-  assert.equal(m.version,'1.1.0');
+  assert.equal(m.version,'1.1.1');
   assert.equal(m.catalogs.length,24);
   assert(m.catalogs.every(c=>c.type==='series'));
   assert(m.catalogs.every(c=>c.showInHome===false));
@@ -81,6 +81,16 @@ test('Nuvio import payload is a top-level collection array',()=>{
   assert.equal(payload[0].id,'calendar-archives');
   assert.equal(payload[0].viewMode,'FOLLOW_LAYOUT');
   assert.equal(payload[0].showAllTab,false);
+  assert.equal(payload[0].pinToTop,true);
+});
+
+test('Shield Modern home row is pinned before addon catalogs',()=>{
+  const [collection]=api._internals.buildNuvioCollectionsImport(fixedNow,tz,'https://archives.example');
+  assert.equal(collection.pinToTop,true);
+  assert.equal(collection.viewMode,'FOLLOW_LAYOUT');
+  assert.equal(collection.folders.length,2);
+  assert(collection.folders.every(f=>f.tileShape==='LANDSCAPE'));
+  assert(collection.folders.every(f=>/^https:\/\/archives\.example\/archive-year-card\.svg\?year=20\d{2}$/.test(f.coverImageUrl)));
 });
 
 test('year folders are 2026 and 2025 with exactly 12 native rows each',()=>{

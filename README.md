@@ -1,8 +1,12 @@
-# Nuvio Calendar Archives v1.1.0 — Modern Shield
+# Nuvio Calendar Archives v1.1.1 — Modern Shield
 
 Projet **séparé** du calendrier principal. Il ne remplace pas Nuvio Calendar Ultimate.
 
-## Ce que change la v1.1
+La Collection est maintenant **`pinToTop: true`**. C’est indispensable sur l’accueil Modern de Nuvio : les Collections épinglées sont injectées avant les catalogues addon, alors qu’une Collection non épinglée peut se retrouver après la limite de lignes rendues et ne jamais apparaître sur la Shield.
+
+Résultat attendu sur l’accueil **Modern** : une ligne `🗄️ Calendar Archives` avec les **cases 16:9 `2026` et `2025`**. Le clic sur une case ouvre ensuite le **FolderDetail natif** avec Janvier → Décembre. Les 24 catalogues mensuels restent `showInHome: false` pour éviter d’inonder l’accueil avec 24 lignes séparées.
+
+## Correctif v1.1.1 — affichage NVIDIA Shield Modern
 
 La navigation repose maintenant sur les **Collections/Folders natifs de Nuvio** :
 
@@ -31,7 +35,7 @@ Exemples d’IDs :
 
 Même rendu validé que le Calendar principal : `posterShape=landscape`, carte Calendar 16:9 dans `background`, `landscapePoster` 16:9, logo transparent, artwork plein cadre, overlay bleu XXL, titre/date/heure/plateforme. `/meta` restaure le vrai backdrop sur la fiche détail.
 
-La Collection utilise `viewMode: FOLLOW_LAYOUT`, donc **FolderDetail suit le layout Modern de la Shield**.
+La Collection utilise `viewMode: FOLLOW_LAYOUT` et `pinToTop: true` : **la ligne des années est visible en haut de l’accueil Modern de la Shield**, puis FolderDetail suit le layout Modern après le clic.
 
 Les cartes année utilisent `/archive-year-card.svg?year=2026` et `/archive-year-card.svg?year=2025` lorsque le JSON est récupéré depuis le serveur déployé.
 
@@ -71,4 +75,4 @@ Manifest ID : `com.nuvio.calendar.archives`
 npm test
 ```
 
-La suite v1.1 valide notamment : 24 catalogues mensuels pour 2026/2025, 12 sources par Folder année, payload d’import Nuvio en tableau, catalogue mensuel mixte, rendu Modern Shield et zéro appel réseau pour les mois futurs.
+La suite v1.1.1 valide notamment : 24 catalogues mensuels pour 2026/2025, 12 sources par Folder année, payload d’import Nuvio en tableau, catalogue mensuel mixte, rendu Modern Shield et zéro appel réseau pour les mois futurs.

@@ -2,7 +2,7 @@
   {
     "id": "calendar-archives",
     "title": "🗄️ Calendar Archives",
-    "pinToTop": false,
+    "pinToTop": true,
     "focusGlowEnabled": true,
     "viewMode": "FOLLOW_LAYOUT",
     "showAllTab": false,

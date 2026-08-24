@@ -32,7 +32,7 @@ const {
   normalizeTitle
 } = require('../src/calendar');
 
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const TVMAZE_BASE = 'https://api.tvmaze.com';
 const ANILIST_URL = 'https://graphql.anilist.co';
@@ -175,7 +175,7 @@ function buildNuvioCollectionsImport(now = runtimeNow(), timeZone = DEFAULT_TIME
   return [{
     id: 'calendar-archives',
     title: '🗄️ Calendar Archives',
-    pinToTop: false,
+    pinToTop: true,
     focusGlowEnabled: true,
     viewMode: 'FOLLOW_LAYOUT',
     showAllTab: false,
@@ -186,7 +186,7 @@ function buildNuvioCollectionsImport(now = runtimeNow(), timeZone = DEFAULT_TIME
 function buildArchiveBlueprint(now = runtimeNow(), timeZone = DEFAULT_TIMEZONE, origin = null) {
   const collections = buildNuvioCollectionsImport(now, timeZone, origin);
   return {
-    schema: 'nuvio-calendar-archives-blueprint-v1.1',
+    schema: 'nuvio-calendar-archives-blueprint-v1.1.1',
     generatedForTimezone: timeZone,
     archiveMinYear: ARCHIVE_MIN_YEAR,
     collection: collections[0],

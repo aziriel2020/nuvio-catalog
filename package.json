@@ -1,8 +1,8 @@
 {
   "name": "nuvio-calendar-archives",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
-  "description": "Standalone Nuvio Calendar Archives v1.1: native Collection year folders, 12 combined monthly rows per year, Modern Shield Blue Overlay XXL.",
+  "description": "Standalone Nuvio Calendar Archives v1.1.1: Shield Modern home-pinned native Collection year folders, 12 combined monthly rows per year, Blue Overlay XXL.",
   "scripts": {
     "test": "node --test",
     "start": "node local-server.js",
