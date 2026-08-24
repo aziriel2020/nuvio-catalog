@@ -18,7 +18,10 @@ const {
   buildInstantEvent,
   parseTmdbFallbackId,
   hasProviderInFlatrate,
+  usVodProviders,
+  hasVodAvailability,
   movieDetailsToMeta,
+  movieVodDetailsToMeta,
   seriesDetailsToMeta,
   baseMeta,
   cleanCatalogMeta,
@@ -34,7 +37,8 @@ const TMDB_BASE = 'https://api.themoviedb.org/3';
 const TVMAZE_BASE = 'https://api.tvmaze.com';
 const ANILIST_URL = 'https://graphql.anilist.co';
 const DEFAULT_MAX_CANDIDATES = 80;
-const DEFAULT_MAX_ITEMS = 100;
+const DEFAULT_MAX_ITEMS = 240;
+const DEFAULT_PAGE_SIZE = 60;
 const ENRICH_CONCURRENCY = 8;
 const CATALOG_TTL_MS = 15 * 60 * 1000;
 const DETAILS_TTL_MS = 15 * 60 * 1000;
@@ -42,7 +46,7 @@ const PROVIDERS_TTL_MS = 6 * 60 * 60 * 1000;
 const TVMAZE_SCHEDULE_TTL_MS = 10 * 60 * 1000;
 const ANILIST_SCHEDULE_TTL_MS = 10 * 60 * 1000;
 const MAPPING_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-const SOURCE_VERSION = 'usa-releases-catalog-v1';
+const SOURCE_VERSION = 'calendar-archives-v1-modern-shield';
 
 const PROVIDERS = [
   { slug: 'netflix', label: 'Netflix', aliases: ['Netflix', 'Netflix Standard with Ads'] },
@@ -58,19 +62,204 @@ const PROVIDERS = [
 
 const PROVIDER_BY_SLUG = new Map(PROVIDERS.map((provider) => [provider.slug, provider]));
 
-// Nuvio Discover exposes three native selectors: Type, Catalog and Genre.
-// We intentionally use the standard `genre` extra as a period selector so the
-// addon works in stock NuvioTV without requiring an APK fork. No genre value
-// means "Aujourd’hui"; this also makes Nuvio's built-in "Tous les genres"
-// fallback behave as the default day instead of returning unrelated content.
+const ARCHIVE_MIN_YEAR = 2025;
+const ARCHIVE_ID_PREFIX = 'archives-v1';
+const ARCHIVE_MONTHS_FR = Object.freeze([
+  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+]);
+const ARCHIVE_SECTIONS = Object.freeze([
+  { key: 'series', type: 'series', label: '📺 Séries Streaming', providerSlug: 'streaming', section: 'series-streaming' },
+  { key: 'films', type: 'movie', label: '🎬 Films + VOD', providerSlug: 'films-vod', section: 'films' },
+  { key: 'anime', type: 'series', label: '🎌 Anime + Crunchyroll', providerSlug: 'anime-crunchyroll', section: 'anime' },
+  { key: 'tvusa', type: 'series', label: '🇺🇸 TV USA', providerSlug: 'tv-usa', section: 'tvusa' }
+]);
+
+function archiveNowParts(now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) {
+  const today = localIsoDate(now, timeZone);
+  const [year, month] = today.split('-').map(Number);
+  return { today, year, month };
+}
+
+function archivePeriod(year, month) {
+  return `archive-${year}-${String(month).padStart(2, '0')}`;
+}
+
+function archiveCatalogId(sectionKey, year, month) {
+  return `${ARCHIVE_ID_PREFIX}-${sectionKey}-${year}-${String(month).padStart(2, '0')}`;
+}
+
+function archiveDescriptor(section, year, month) {
+  const monthLabel = ARCHIVE_MONTHS_FR[month - 1];
+  return {
+    type: section.type,
+    name: `${monthLabel} ${year} • ${section.label}`,
+    providerSlug: section.providerSlug,
+    period: archivePeriod(year, month),
+    source: 'combined-calendar',
+    section: section.section,
+    explore: true,
+    archiveYear: year,
+    archiveMonth: month,
+    archiveSection: section.key
+  };
+}
+
+function buildArchiveCatalogEntries(now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) {
+  const { year: currentYear } = archiveNowParts(now, timeZone);
+  const entries = [];
+  if (currentYear < ARCHIVE_MIN_YEAR) return entries;
+  // Predeclare Jan→Dec for every year. Future months are empty and make no upstream call.
+  // This lets a Nuvio Collection be wired once and self-populate month rows over time.
+  for (let year = currentYear; year >= ARCHIVE_MIN_YEAR; year -= 1) {
+    for (let month = 1; month <= 12; month += 1) {
+      for (const section of ARCHIVE_SECTIONS) {
+        entries.push({ id: archiveCatalogId(section.key, year, month), catalog: archiveDescriptor(section, year, month) });
+      }
+    }
+  }
+  return entries;
+}
+
+function resolveArchiveCatalog(catalogId, type, now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) {
+  const m = String(catalogId || '').match(/^archives-v1-(series|films|anime|tvusa)-(\d{4})-(\d{2})$/);
+  if (!m) return null;
+  const section = ARCHIVE_SECTIONS.find((entry) => entry.key === m[1]);
+  const year = Number(m[2]);
+  const month = Number(m[3]);
+  const { year: currentYear } = archiveNowParts(now, timeZone);
+  if (!section || section.type !== type || year < ARCHIVE_MIN_YEAR || year > currentYear || month < 1 || month > 12) return null;
+  return archiveDescriptor(section, year, month);
+}
+
+function buildArchiveBlueprint(now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) {
+  const entries = buildArchiveCatalogEntries(now, timeZone);
+  const byYear = new Map();
+  for (const entry of entries) {
+    const y = entry.catalog.archiveYear;
+    if (!byYear.has(y)) byYear.set(y, []);
+    byYear.get(y).push({
+      addonId: 'com.nuvio.calendar.archives',
+      type: entry.catalog.type,
+      catalogId: entry.id,
+      title: entry.catalog.name
+    });
+  }
+  return {
+    schema: 'nuvio-calendar-archives-blueprint-v1',
+    generatedForTimezone: timeZone,
+    archiveMinYear: ARCHIVE_MIN_YEAR,
+    collection: {
+      id: 'calendar-archives',
+      title: '🗄️ Calendar Archives',
+      viewMode: 'FOLLOW_LAYOUT',
+      showAllTab: false,
+      folders: [...byYear.entries()].map(([year, sources]) => ({
+        id: `archives-${year}`,
+        title: String(year),
+        coverEmoji: '🗓️',
+        tileShape: 'LANDSCAPE',
+        sources
+      }))
+    },
+    note: 'Blueprint informatif: Nuvio Collections est local à l’application; l’addon ne peut pas injecter automatiquement ces dossiers. Toutes les sources Jan→Déc sont pré-déclarées afin que les mois futurs deviennent non vides automatiquement.'
+  };
+}
+
+// Archive source/filter definitions reused from the live Calendar engine.
 const PERIOD_OPTIONS = Object.freeze([
+  { label: 'Mois dernier', value: 'lastmonth' },
   { label: 'Ce mois', value: 'month' },
   { label: '7 derniers jours', value: 'past7' },
   { label: 'Aujourd’hui', value: 'today' },
   { label: 'Demain', value: 'tomorrow' },
-  { label: '7 prochains jours', value: 'week' }
+  { label: 'Dans les 7 jours', value: 'next7' }
 ]);
-const PERIOD_LABELS = new Map(PERIOD_OPTIONS.map((entry) => [entry.value, entry.label]));
+const FILM_EXTRA_CATALOGS = Object.freeze([
+  { label: 'Actuellement au cinéma', value: 'nowplaying' },
+  { label: 'Upcoming Movies — 1 an', value: 'upcomingyear' }
+]);
+const PERIOD_LABELS = new Map([...PERIOD_OPTIONS, ...FILM_EXTRA_CATALOGS].map((entry) => [entry.value, entry.label]));
+const STREAMING_PROVIDERS = Object.freeze(PROVIDERS.filter((provider) => provider.slug !== 'crunchyroll'));
+const SERIES_STREAMING_FILTERS = Object.freeze([
+  { label: 'Avec heure précise', value: 'timed', kind: 'special' },
+  { label: 'Multi-plateformes', value: 'multi', kind: 'special' }
+]);
+const TVUSA_FILTERS = Object.freeze([
+  { label: 'TV USA • Prioritaire', value: 'tv-usa', kind: 'source' },
+  { label: 'TV USA • Tout', value: 'tv-usa-all', kind: 'source' }
+]);
+const ANIME_FILTERS = Object.freeze([
+  { label: 'Airing anime', value: 'anime-airing', kind: 'source' },
+  { label: 'Crunchyroll', value: 'crunchyroll', kind: 'provider' },
+  { label: 'Avec heure précise', value: 'timed', kind: 'special' }
+]);
+const MOVIE_SPECIAL_FILTERS = Object.freeze([
+  { label: 'VOD US', value: 'vod', kind: 'source' },
+  { label: 'Multi-plateformes', value: 'multi', kind: 'special' }
+]);
+function catalogSection(catalog) {
+  if (typeof catalog === 'string') return catalog === 'movie' ? 'films' : 'series-streaming';
+  return catalog?.section || (catalog?.type === 'movie' ? 'films' : 'series-streaming');
+}
+function filterOptionsForCatalog(catalog) {
+  if (catalog?.noFilters) return [];
+  const section = catalogSection(catalog);
+  if (section === 'tvusa') return [...TVUSA_FILTERS];
+  if (section === 'anime') return [...ANIME_FILTERS];
+  const providers = STREAMING_PROVIDERS.map((provider) => ({ label: provider.label, value: provider.slug, kind: 'provider' }));
+  return section === 'films' ? [...MOVIE_SPECIAL_FILTERS, ...providers] : [...SERIES_STREAMING_FILTERS, ...providers];
+}
+function filterOptionsForType(type) {
+  return filterOptionsForCatalog({ type, section: type === 'movie' ? 'films' : 'series-streaming' });
+}
+
+function normalizedFilterValue(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[’`]/g, "'")
+    .trim()
+    .toLowerCase();
+}
+
+function filterFromExtra(value, catalog) {
+  const normalized = normalizedFilterValue(value);
+  if (!normalized) return null;
+  for (const option of filterOptionsForCatalog(catalog)) {
+    const aliases = [option.value, option.label, option.label.replace(/\+/g, ' plus ')].map(normalizedFilterValue);
+    if (aliases.includes(normalized)) return option;
+  }
+  return null;
+}
+
+function filterCombinedMetas(metas, filter, type) {
+  if (!filter) return metas || [];
+  if (filter.kind === 'provider') {
+    const provider = PROVIDER_BY_SLUG.get(filter.value);
+    if (!provider) return [];
+    return (metas || []).filter((meta) => (meta._calendarProviders || []).includes(provider.label));
+  }
+  if (filter.value === 'multi') {
+    return (metas || []).filter((meta) => (meta._calendarProviders || []).length > 1);
+  }
+  if (filter.value === 'timed') {
+    return (metas || []).filter((meta) => releaseClockMinutes(meta) !== null);
+  }
+  if (filter.value === 'vod') {
+    return (metas || []).filter((meta) => (meta._calendarProviders || []).includes('VOD US') || meta._calendarSource === 'tmdb-vod');
+  }
+  if (type !== 'series') return metas || [];
+  if (filter.value === 'tv-usa' || filter.value === 'tv-usa-all') return (metas || []).filter((meta) => meta._calendarSource === 'tvmaze-broadcast');
+  if (filter.value === 'anime-airing') return (metas || []).filter((meta) => meta._calendarSource === 'anilist-airing');
+  return metas || [];
+}
+
+function parseSkip(value) {
+  const parsed = Number.parseInt(String(value ?? '0'), 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return Math.min(parsed, 10000);
+}
 
 function normalizePeriodLabel(value) {
   return String(value || '')
@@ -84,10 +273,17 @@ function normalizePeriodLabel(value) {
 function periodFromExtra(value, fallback = 'today') {
   const normalized = normalizePeriodLabel(value);
   if (!normalized) return fallback;
-  if (['month', 'ce mois', 'mois en cours', "ce mois jusqu'a hier", 'month to date', 'month-to-date'].includes(normalized)) return 'month';
-  if (['past7', 'last 7 days', '7 derniers jours', 'derniers 7 jours', '7 jours precedents'].includes(normalized)) return 'past7';
+  if (['lastyear', 'annee derniere', 'previous year', 'last year'].includes(normalized)) return 'lastyear';
+  if (['lastmonth', 'mois dernier', 'previous month', 'mois precedent'].includes(normalized)) return 'lastmonth';
+  if (['lastweek', 'semaine derniere', 'previous week', '7 jours precedents'].includes(normalized)) return 'lastweek';
   if (['today', "aujourd'hui", 'aujourdhui'].includes(normalized)) return 'today';
   if (['tomorrow', 'demain'].includes(normalized)) return 'tomorrow';
+  if (['next7', 'dans les 7 jours', 'prochains jours sans demain', 'j+2 -> j+7'].includes(normalized)) return 'next7';
+  if (['nowplaying', 'actuellement au cinema', 'cinema actuel', 'now playing'].includes(normalized)) return 'nowplaying';
+  if (['upcomingyear', 'upcoming movies 1 an', 'upcoming movies — 1 an', 'films a venir 1 an'].includes(normalized)) return 'upcomingyear';
+  // Legacy aliases remain callable but are no longer advertised.
+  if (['month', 'ce mois', 'mois en cours', "ce mois jusqu'a hier", 'month to date', 'month-to-date'].includes(normalized)) return 'month';
+  if (['past7', 'last 7 days', '7 derniers jours', 'derniers 7 jours'].includes(normalized)) return 'past7';
   if (['week', '7 days', '7 jours', '7 prochains jours', 'cette semaine'].includes(normalized)) return 'week';
   if (['upcoming', 'a venir', 'a venir (j+1 -> j+6)'].includes(normalized)) return 'upcoming';
   return fallback;
@@ -110,79 +306,8 @@ function parseCatalogExtraSegment(segment = '') {
   return output;
 }
 
-const CATALOGS = {
-  'calendar-global-movie': {
-    type: 'movie', name: 'Global • Calendar', providerSlug: 'global', period: 'today',
-    source: 'global', explore: true
-  },
-  'calendar-global-series': {
-    type: 'series', name: 'Global • Calendar', providerSlug: 'global', period: 'today',
-    source: 'global', explore: true
-  }
-};
-const EXPLORE_CATALOG_IDS = ['calendar-global-movie', 'calendar-global-series'];
-for (const provider of PROVIDERS) {
-  const movieId = `calendar-${provider.slug}-movie`;
-  const seriesId = `calendar-${provider.slug}-series`;
-  CATALOGS[movieId] = {
-    type: 'movie',
-    name: `${provider.label} • Calendar`,
-    providerSlug: provider.slug,
-    period: 'today',
-    source: 'tmdb-streaming',
-    explore: true
-  };
-  CATALOGS[seriesId] = {
-    type: 'series',
-    name: `${provider.label} • Calendar`,
-    providerSlug: provider.slug,
-    period: 'today',
-    source: 'tmdb-streaming',
-    explore: true
-  };
-  EXPLORE_CATALOG_IDS.push(movieId, seriesId);
-
-}
-Object.assign(CATALOGS, {
-  'calendar-tv-usa-series': {
-    type: 'series', name: 'TV USA • Calendar', providerSlug: 'tv-usa', period: 'today',
-    source: 'tvmaze-broadcast', explore: true
-  },
-  'calendar-anime-series': {
-    type: 'series', name: 'Anime • Calendar', providerSlug: 'anime', period: 'today',
-    source: 'anilist-airing', explore: true
-  }
-});
-EXPLORE_CATALOG_IDS.push('calendar-tv-usa-series', 'calendar-anime-series');
-
-
-// Catalog-first presentation. These fixed-period global catalogs are the only
-// catalogs exposed by this add-on's manifest. They turn the same dynamic
-// Calendar engine into native Nuvio Home/See-All rows without requiring an APK
-// modification. Provider/source identity is rendered on every release card.
-const HOME_PERIODS = Object.freeze([
-  { slug: 'today', period: 'today', label: 'Aujourd’hui' },
-  { slug: 'tomorrow', period: 'tomorrow', label: 'Demain' },
-  { slug: 'week', period: 'week', label: '7 prochains jours' },
-  { slug: 'past7', period: 'past7', label: '7 derniers jours' },
-  { slug: 'month', period: 'month', label: 'Ce mois' }
-]);
-const HOME_CATALOG_IDS = [];
-for (const entry of HOME_PERIODS) {
-  for (const type of ['movie', 'series']) {
-    const id = `usa-releases-${entry.slug}-${type}`;
-    CATALOGS[id] = {
-      type,
-      name: `${entry.label} • ${type === 'movie' ? 'Films' : 'Séries'}`,
-      providerSlug: 'global',
-      period: entry.period,
-      source: 'global',
-      explore: false,
-      home: true
-    };
-    HOME_CATALOG_IDS.push(id);
-  }
-}
+const CATALOGS = {};
+const EXPLORE_CATALOG_IDS = [];
 
 class MemoryCache {
   constructor() {
@@ -292,6 +417,34 @@ function cardLines(value, maxPerLine = 24, maxLines = 2) {
   return lines.slice(0, maxLines);
 }
 
+
+// TV typography is intentionally tiered instead of using one font size for
+// every title. Short titles should feel cinematic and large; long titles must
+// shrink gracefully without stealing the append/date/platform area.
+function calendarTitleProfile(value, layout = 'landscape') {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  const compactLength = text.replace(/\s/g, '').length;
+  const landscape = normalizedCardLayout(layout) === 'landscape';
+
+  // Shield-first typography. The labels are intentionally oversized because
+  // they are rendered under the artwork box and must remain readable from a
+  // sofa. Short titles get the biggest treatment, while long titles shrink
+  // progressively and may use up to three balanced lines.
+  if (compactLength <= 16) {
+    return landscape
+      ? { tier: 'short', fontSize: 142, lineHeight: 146, maxPerLine: 20, maxLines: 1 }
+      : { tier: 'short', fontSize: 108, lineHeight: 114, maxPerLine: 18, maxLines: 1 };
+  }
+  if (compactLength <= 34) {
+    return landscape
+      ? { tier: 'medium', fontSize: 104, lineHeight: 110, maxPerLine: 24, maxLines: 2 }
+      : { tier: 'medium', fontSize: 84, lineHeight: 90, maxPerLine: 21, maxLines: 2 };
+  }
+  return landscape
+    ? { tier: 'long', fontSize: 82, lineHeight: 88, maxPerLine: 29, maxLines: 3 }
+    : { tier: 'long', fontSize: 66, lineHeight: 72, maxPerLine: 24, maxLines: 3 };
+}
+
 function isAllowedPosterSource(value) {
   try {
     const url = new URL(String(value || ''));
@@ -301,85 +454,340 @@ function isAllowedPosterSource(value) {
   }
 }
 
-function catalogBadgeLabels(catalog) {
-  if (!catalog) return ['USA'];
-  if (catalog.providerSlug === 'tv-usa') return ['TV USA'];
-  if (catalog.providerSlug === 'anime') return ['Anime'];
-  const provider = PROVIDER_BY_SLUG.get(catalog.providerSlug);
-  if (provider) return [provider.label];
-  const fromName = String(catalog.name || '').replace(/\s*•\s*Calendar\s*$/i, '').trim();
-  return fromName ? [fromName] : ['USA'];
+function normalizedCardLayout(value) {
+  return String(value || '').toLowerCase() === 'landscape' ? 'landscape' : 'portrait';
 }
 
-function calendarCardUrl(origin, meta, catalog, timeZone) {
-  if (!getConfig().calendarCards || !meta?.poster || !isAllowedPosterSource(meta.poster)) return meta?.poster || null;
-  const badges = Array.isArray(meta.calendarProviders) && meta.calendarProviders.length ? meta.calendarProviders : catalogBadgeLabels(catalog);
-  const url = new URL('/release-card.svg', origin);
-  url.searchParams.set('src', meta.poster);
-  url.searchParams.set('title', compactCardText(meta.name, 56));
-  url.searchParams.set('provider', compactCardText(badges[0] || 'USA', 24));
-  url.searchParams.set('badges', badges.join('|'));
-  url.searchParams.set('info', compactCardText(meta.releaseInfo || '', 64));
+function optimizedCardSource(value, layout = 'portrait') {
+  if (!isAllowedPosterSource(value)) return value;
+  try {
+    const url = new URL(String(value));
+    if (url.hostname.toLowerCase() === 'image.tmdb.org') {
+      const targetSize = normalizedCardLayout(layout) === 'landscape' ? 'w780' : 'w500';
+      url.pathname = url.pathname.replace(/\/t\/p\/(?:original|w\d+)\//, `/t/p/${targetSize}/`);
+      return url.toString();
+    }
+  } catch {
+    // Keep the original URL when it cannot be normalized.
+  }
+  return value;
+}
+
+function normalizedCardToken(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[’`]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function calendarSourceLabel(source) {
+  if (source === 'tvmaze-broadcast') return 'TV USA';
+  if (source === 'anilist-airing') return 'AIRING ANIME';
+  if (source === 'tmdb-streaming') return 'STREAMING US';
+  return 'CALENDRIER USA';
+}
+
+function calendarCardEventInfo(meta, dateLabel = '') {
+  const releaseInfo = String(meta?.releaseInfo || '');
+  const dateTokens = new Set([
+    normalizedCardToken(dateLabel),
+    normalizedCardToken(meta?.released),
+    'aujourd hui',
+    "aujourd'hui",
+    'aujourdhui',
+    'demain'
+  ].filter(Boolean));
+  const parts = releaseInfo
+    .split('•')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => !dateTokens.has(normalizedCardToken(part)));
+  const compact = parts.join(' • ');
+  if (compact) return compact;
+  return meta?.type === 'movie' ? 'SORTIE US' : 'NOUVEL ÉPISODE';
+}
+
+const FR_CARD_WEEKDAYS = Object.freeze(['DIM', 'LUN', 'MAR', 'MER', 'JEU', 'VEN', 'SAM']);
+const FR_CARD_MONTHS = Object.freeze(['JANV', 'FÉVR', 'MARS', 'AVR', 'MAI', 'JUIN', 'JUIL', 'AOÛT', 'SEPT', 'OCT', 'NOV', 'DÉC']);
+
+function frenchCardDate(value) {
+  const iso = normalizeIsoDate(value);
+  if (!iso) return null;
+  const date = new Date(`${iso}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${FR_CARD_WEEKDAYS[date.getUTCDay()]} ${String(date.getUTCDate()).padStart(2, '0')} ${FR_CARD_MONTHS[date.getUTCMonth()]}`;
+}
+
+function compactEpisodeToken(meta) {
+  const token = releaseEpisodeToken(meta);
+  if (!token) return null;
+  const seasonEpisode = token.match(/S(\d{1,2})E(\d{1,3})/i);
+  if (seasonEpisode) return `S${String(Number(seasonEpisode[1])).padStart(2, '0')}E${String(Number(seasonEpisode[2])).padStart(2, '0')}`;
+  const episode = token.match(/(?:Épisode|Episode|EP)\s*(\d+)/i);
+  if (episode) return `EP${String(Number(episode[1])).padStart(2, '0')}`;
+  return token.toUpperCase();
+}
+
+function exactClockToken(meta) {
+  const match = String(meta?.releaseInfo || '').match(/(?:^|\s|•)([01]\d|2[0-3]):([0-5]\d)\b/);
+  return match ? `${match[1]}:${match[2]}` : null;
+}
+
+function calendarAppend(meta, catalog) {
+  const period = catalog?.period || 'today';
+  const dateToken = period === 'today'
+    ? 'AUJOURD’HUI'
+    : period === 'tomorrow'
+      ? 'DEMAIN'
+      : (frenchCardDate(meta?.released) || PERIOD_LABELS.get(period)?.toUpperCase() || 'CALENDRIER');
+  const provider = compactCardText(meta?._calendarProvider || catalog?.cardProvider || 'CALENDRIER USA', 34).toUpperCase();
+  const parts = [];
+  if (meta?.type === 'series') {
+    const episode = compactEpisodeToken(meta);
+    if (episode) parts.push(episode);
+  }
+  if (dateToken) parts.push(dateToken);
+  const clock = exactClockToken(meta);
+  if (clock) parts.push(clock);
+  if (provider) parts.push(provider);
+  return compactCardText(parts.join(' • '), 82);
+}
+
+function isHomeCalendarPeriod(period) {
+  if (/^archive-\d{4}-\d{2}$/.test(String(period || ''))) return true;
+  // Archive rows must use exactly the same Shield / Android TV Modern landscape
+  // decoration as the live Calendar project, even though showInHome=false in this addon.
+  return ['lastmonth', 'month', 'lastweek', 'past7', 'today', 'tomorrow', 'next7', 'nowplaying', 'upcomingyear', 'week'].includes(period);
+}
+
+function calendarCardUrl(origin, meta, catalog, timeZone, layout = 'portrait', sourceOverride = null) {
+  const cardLayout = normalizedCardLayout(layout);
+  const source = optimizedCardSource(sourceOverride || meta?.poster, cardLayout);
+  if (!getConfig().calendarCards || !source || !isAllowedPosterSource(source)) return sourceOverride || meta?.poster || null;
+  const append = calendarAppend(meta, catalog);
+  const url = new URL('/calendar-card.svg', origin);
+  url.searchParams.set('v', VERSION);
+  url.searchParams.set('src', source);
+  url.searchParams.set('layout', cardLayout);
+  url.searchParams.set('title', compactCardText(meta.name, 62));
+  url.searchParams.set('provider', compactCardText(meta?._calendarProvider || catalog?.cardProvider || catalog?.name || 'USA', 36));
+  url.searchParams.set('append', append);
   url.searchParams.set('tz', timeZone || DEFAULT_TIMEZONE);
   url.searchParams.set('type', meta.type || catalog?.type || '');
+  if (meta.released) url.searchParams.set('date', meta.released);
+  if (meta?._calendarSource) url.searchParams.set('source', meta._calendarSource);
+  return url.toString();
+}
+
+function transparentModernLogoUrl(origin) {
+  const url = new URL('/calendar-transparent-logo.svg', origin);
+  url.searchParams.set('v', VERSION);
   return url.toString();
 }
 
 function decorateCatalogMetas(origin, metas, catalog, timeZone) {
   return (metas || []).map((meta) => {
-    const poster = getConfig().calendarCards ? (calendarCardUrl(origin, meta, catalog, timeZone) || meta.poster) : meta.poster;
-    const clean = { ...meta, poster };
-    delete clean.calendarProviders;
-    return clean;
+    const originalPoster = meta?.poster || null;
+    const originalBackground = meta?.background || null;
+    const originalLandscape = meta?.landscapePoster || originalBackground || originalPoster;
+    const append = calendarAppend(meta, catalog);
+    const homeVisible = isHomeCalendarPeriod(catalog?.period);
+
+    // Nuvio Modern Home is special: with "landscape posters" enabled it does
+    // NOT prefer landscapePoster. buildCatalogItem() resolves item.backdropUrl,
+    // and MetaPreview.backdropUrl prioritizes background before landscapePoster.
+    // Therefore every Home-capable calendar period intentionally publishes the Calendar 16:9 card
+    // as `background`. ModernCarouselCard then freezes that first backdrop for
+    // the row card, while /meta/... still returns the real TMDb artwork on detail.
+    // Explore ignores background for its grid and keeps using `poster`, so it gets
+    // its own portrait Calendar card from the same catalog payload.
+    const portraitPoster = getConfig().calendarCards && originalPoster
+      ? (calendarCardUrl(origin, meta, catalog, timeZone, 'portrait', originalPoster) || originalPoster)
+      : originalPoster;
+    const wideSource = originalLandscape || originalPoster;
+    const widePoster = getConfig().calendarCards && wideSource
+      ? (calendarCardUrl(origin, meta, catalog, timeZone, 'landscape', wideSource) || wideSource)
+      : (meta?.landscapePoster || wideSource);
+
+    const copy = {
+      ...meta,
+      poster: portraitPoster || originalPoster,
+      posterShape: homeVisible ? 'landscape' : (meta?.posterShape || 'poster'),
+      landscapePoster: widePoster,
+      // Critical Modern View targeting: when landscape-card style is active,
+      // Nuvio reads/freeze-selects the backdrop. Feed it the Calendar card here.
+      background: homeVisible ? (widePoster || originalBackground || portraitPoster) : originalBackground,
+      // Modern Home draws a logo/title overlay on landscape cards. A valid but
+      // transparent logo freezes that overlay slot so our card artwork remains
+      // the single source of truth. Detail metadata later restores the real logo.
+      logo: homeVisible && getConfig().calendarCards
+        ? transparentModernLogoUrl(origin)
+        : meta?.logo,
+      // Classic Home can still render this as a native second line when labels
+      // are enabled; Modern Home intentionally disables native labels.
+      releaseInfo: append
+    };
+    for (const key of Object.keys(copy)) {
+      if (key.startsWith('_')) delete copy[key];
+    }
+    return copy;
   });
 }
 
-function badgePalette(label) {
-  const key = normalizeProviderName(label);
-  if (key.includes('netflix')) return ['#e50914', '#ffffff', '#ff6b72'];
-  if (key.includes('prime')) return ['#00a8e1', '#001018', '#8be1ff'];
-  if (key.includes('disney')) return ['#1736c7', '#ffffff', '#7e9cff'];
-  if (key === 'max' || key.includes('hbo max')) return ['#6f2cff', '#ffffff', '#b99cff'];
-  if (key.includes('apple')) return ['#111827', '#ffffff', '#d1d5db'];
-  if (key.includes('hulu')) return ['#1ce783', '#062b1a', '#9fffc5'];
-  if (key.includes('paramount')) return ['#0064ff', '#ffffff', '#7eb4ff'];
-  if (key.includes('peacock')) return ['#f7c600', '#181000', '#fff08a'];
-  if (key.includes('crunchyroll')) return ['#f47521', '#ffffff', '#ffb27d'];
-  if (key.includes('tv usa')) return ['#ef4444', '#ffffff', '#fca5a5'];
-  if (key.includes('anime')) return ['#ec4899', '#ffffff', '#f9a8d4'];
-  return ['#334155', '#ffffff', '#94a3b8'];
+function providerAccentColor(provider = '') {
+  const value = normalizedCardToken(provider);
+  if (value.includes('netflix')) return '#e50914';
+  if (value.includes('prime')) return '#22a6f2';
+  if (value.includes('disney')) return '#32d4ff';
+  if (value === 'max' || value.includes('hbo max')) return '#7c3aed';
+  if (value.includes('apple')) return '#94a3b8';
+  if (value.includes('hulu')) return '#1ce783';
+  if (value.includes('paramount')) return '#2d7ff9';
+  if (value.includes('peacock')) return '#facc15';
+  if (value.includes('crunchyroll')) return '#f97316';
+  if (value.includes('tv usa')) return '#38bdf8';
+  if (value.includes('anime')) return '#a855f7';
+  return '#38bdf8';
 }
 
-function calendarCardSvg({ imageDataUri = null, title = '', provider = '', badges = [], info = '', type = '' }) {
-  const lines = cardLines(title, 23, 2);
-  const titleSpans = lines.map((line, index) => `<tspan x="64" dy="${index === 0 ? 0 : 58}">${escapeXml(line)}</tspan>`).join('');
-  const badgeList = [...new Set((Array.isArray(badges) ? badges : String(badges || '').split('|')).map((x) => compactCardText(x, 18)).filter(Boolean))];
-  if (!badgeList.length && provider) badgeList.push(compactCardText(provider, 18));
-  const visible = badgeList.slice(0, 3);
-  if (badgeList.length > 3) visible.push(`+${badgeList.length - 3}`);
-  const badgeNodes = visible.map((label, index) => {
-    const [fill, text, stroke] = badgePalette(label);
-    const width = Math.max(190, Math.min(430, 105 + label.length * 20));
-    const y = 54 + index * 88;
-    return `<rect x="54" y="${y}" rx="30" width="${width}" height="70" fill="${fill}" fill-opacity=".95" stroke="${stroke}" stroke-width="3"/><text x="84" y="${y + 47}" fill="${text}" font-family="Arial, Helvetica, sans-serif" font-size="31" font-weight="800">${escapeXml(label)}</text>`;
-  }).join('');
-  const infoText = escapeXml(compactCardText(info, 52));
+function calendarCardSvg({ imageDataUri = null, title = '', provider = '', append = '', type = '', layout = 'portrait' }) {
+  const cardLayout = normalizedCardLayout(layout);
+  const landscape = cardLayout === 'landscape';
+  const providerRaw = compactCardText(provider || 'USA', landscape ? 28 : 24).toUpperCase();
+  const providerText = escapeXml(providerRaw);
+  const appendParts = String(append || (type === 'movie' ? 'SORTIE US' : 'NOUVEL ÉPISODE'))
+    .split('•').map((part) => part.trim()).filter(Boolean);
+  const appendProviderRaw = appendParts.length > 1 ? appendParts.pop() : providerRaw;
+  const appendMainRaw = appendParts.join(' • ') || (type === 'movie' ? 'SORTIE US' : 'NOUVEL ÉPISODE');
   const typeText = type === 'movie' ? 'FILM' : type === 'series' ? 'SÉRIE' : '';
-  const imageNode = imageDataUri ? `<image width="1000" height="1500" href="${escapeXml(imageDataUri)}" preserveAspectRatio="xMidYMid slice"/>` : `<rect width="1000" height="1500" fill="#111827"/><circle cx="760" cy="220" r="330" fill="#7c3aed" opacity=".22"/>`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1500" viewBox="0 0 1000 1500"><defs><linearGradient id="shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#020617" stop-opacity=".08"/><stop offset=".55" stop-color="#020617" stop-opacity=".08"/><stop offset="1" stop-color="#020617" stop-opacity=".96"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".55"/></filter></defs>${imageNode}<rect width="1000" height="1500" fill="url(#shade)"/><g filter="url(#shadow)">${badgeNodes}${typeText ? `<rect x="790" y="54" rx="30" width="156" height="70" fill="#7c3aed" fill-opacity=".92"/><text x="868" y="101" text-anchor="middle" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="29" font-weight="800">${typeText}</text>` : ''}<text x="64" y="1260" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800">${titleSpans}</text><rect x="54" y="1372" rx="30" width="892" height="82" fill="#7c3aed" fill-opacity=".94"/><text x="500" y="1425" text-anchor="middle" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="700">${infoText || 'Calendrier USA'}</text></g></svg>`;
+  const accent = providerAccentColor(providerRaw);
+
+  if (landscape) {
+    const width = 1600;
+    const height = 900;
+    const providerW = Math.min(540, Math.max(300, 170 + providerRaw.length * 22));
+    const typeW = typeText ? 224 : 0;
+    const badgeGap = 22;
+    const rightPad = 44;
+    const typeX = width - rightPad - typeW;
+    const providerX = typeText ? typeX - badgeGap - providerW : width - rightPad - providerW;
+
+    const profile = calendarTitleProfile(title, 'landscape');
+    const tvProfile = profile.tier === 'short'
+      ? { fontSize: 120, lineHeight: 122, maxPerLine: 21, maxLines: 1 }
+      : profile.tier === 'medium'
+        ? { fontSize: 94, lineHeight: 98, maxPerLine: 28, maxLines: 2 }
+        : { fontSize: 76, lineHeight: 80, maxPerLine: 34, maxLines: 2 };
+    const lines = cardLines(title, tvProfile.maxPerLine, tvProfile.maxLines);
+    const overlayY = 490;
+    const titleY = 616;
+    const titleSpans = lines.map((line, index) =>
+      `<tspan x="68" dy="${index === 0 ? 0 : tvProfile.lineHeight}">${escapeXml(line)}</tspan>`
+    ).join('');
+    const appendY = titleY + Math.max(0, lines.length - 1) * tvProfile.lineHeight + 92;
+    const platformY = Math.min(850, appendY + 80);
+    const appendMainText = escapeXml(compactCardText(appendMainRaw, 72));
+    const appendProviderText = escapeXml(compactCardText(appendProviderRaw, 36).toUpperCase());
+
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <clipPath id="cardClip"><rect x="0" y="0" width="1600" height="900" rx="38"/></clipPath>
+    <linearGradient id="blueOverlay" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#03152f" stop-opacity=".82"/>
+      <stop offset=".55" stop-color="#062b5c" stop-opacity=".76"/>
+      <stop offset="1" stop-color="#0369a1" stop-opacity=".62"/>
+    </linearGradient>
+    <linearGradient id="topReadability" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#020617" stop-opacity=".22"/>
+      <stop offset=".56" stop-color="#020617" stop-opacity=".04"/>
+      <stop offset="1" stop-color="#020617" stop-opacity=".16"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#cardClip)">
+    ${imageDataUri ? `<image x="0" y="0" width="1600" height="900" href="${escapeXml(imageDataUri)}" preserveAspectRatio="xMidYMid slice"/>` : `<rect width="1600" height="900" fill="#07111f"/>`}
+    <rect width="1600" height="900" fill="url(#topReadability)"/>
+    <rect x="0" y="${overlayY}" width="1600" height="${height-overlayY}" fill="url(#blueOverlay)"/>
+    <rect x="0" y="${overlayY}" width="1600" height="5" fill="#38bdf8" fill-opacity=".78"/>
+  </g>
+
+  <rect x="${providerX}" y="38" width="${providerW}" height="116" rx="32" fill="#020617" fill-opacity=".86" stroke="${accent}" stroke-width="7"/>
+  <text x="${providerX + providerW/2}" y="116" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="58" font-weight="900">${providerText}</text>
+  ${typeText ? `<rect x="${typeX}" y="38" width="${typeW}" height="116" rx="32" fill="${accent}" fill-opacity=".96"/><text x="${typeX + typeW/2}" y="116" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="56" font-weight="900">${typeText}</text>` : ''}
+
+  <text x="68" y="${titleY}" fill="#fff" font-family="sans-serif" font-size="${tvProfile.fontSize}" font-weight="900" letter-spacing="-1.2">${titleSpans}</text>
+  <text x="68" y="${appendY}" fill="#f8fafc" font-family="sans-serif" font-size="66" font-weight="850">${appendMainText}</text>
+  <text x="68" y="${platformY}" fill="${accent}" font-family="sans-serif" font-size="64" font-weight="900">${appendProviderText}</text>
+  <rect x="0" y="0" width="1600" height="900" rx="38" fill="none" stroke="#fff" stroke-opacity=".20" stroke-width="5"/>
+</svg>`;
+  }
+
+  const width = 1000;
+  const height = 1500;
+  const providerW = Math.min(510, Math.max(275, 150 + providerRaw.length * 20));
+  const typeW = typeText ? 196 : 0;
+  const badgeGap = 16;
+  const rightPad = 34;
+  const typeX = width - rightPad - typeW;
+  const providerX = typeText ? typeX - badgeGap - providerW : width - rightPad - providerW;
+  const profile = calendarTitleProfile(title, 'portrait');
+  const portraitProfile = profile.tier === 'short'
+    ? { fontSize: 104, lineHeight: 108, maxPerLine: 15, maxLines: 1 }
+    : profile.tier === 'medium'
+      ? { fontSize: 82, lineHeight: 86, maxPerLine: 18, maxLines: 2 }
+      : { fontSize: 66, lineHeight: 70, maxPerLine: 20, maxLines: 2 };
+  const lines = cardLines(title, portraitProfile.maxPerLine, portraitProfile.maxLines);
+  const overlayY = 930;
+  const titleY = 1080;
+  const titleSpans = lines.map((line, index) =>
+    `<tspan x="56" dy="${index === 0 ? 0 : portraitProfile.lineHeight}">${escapeXml(line)}</tspan>`
+  ).join('');
+  const appendY = titleY + Math.max(0, lines.length - 1) * portraitProfile.lineHeight + 96;
+  const platformY = Math.min(1450, appendY + 86);
+  const appendMainText = escapeXml(compactCardText(appendMainRaw, 58));
+  const appendProviderText = escapeXml(compactCardText(appendProviderRaw, 30).toUpperCase());
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1500" viewBox="0 0 1000 1500">
+  <defs>
+    <clipPath id="cardClip"><rect x="0" y="0" width="1000" height="1500" rx="42"/></clipPath>
+    <linearGradient id="blueOverlay" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#03152f" stop-opacity=".84"/>
+      <stop offset=".58" stop-color="#062b5c" stop-opacity=".78"/>
+      <stop offset="1" stop-color="#0369a1" stop-opacity=".64"/>
+    </linearGradient>
+    <linearGradient id="topReadability" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#020617" stop-opacity=".24"/><stop offset=".72" stop-color="#020617" stop-opacity=".03"/><stop offset="1" stop-color="#020617" stop-opacity=".18"/></linearGradient>
+  </defs>
+  <g clip-path="url(#cardClip)">
+    ${imageDataUri ? `<image x="0" y="0" width="1000" height="1500" href="${escapeXml(imageDataUri)}" preserveAspectRatio="xMidYMid slice"/>` : `<rect width="1000" height="1500" fill="#07111f"/>`}
+    <rect width="1000" height="1500" fill="url(#topReadability)"/>
+    <rect x="0" y="${overlayY}" width="1000" height="${height-overlayY}" fill="url(#blueOverlay)"/>
+    <rect x="0" y="${overlayY}" width="1000" height="6" fill="#38bdf8" fill-opacity=".78"/>
+  </g>
+
+  <rect x="${providerX}" y="42" width="${providerW}" height="108" rx="30" fill="#020617" fill-opacity=".86" stroke="${accent}" stroke-width="7"/>
+  <text x="${providerX + providerW/2}" y="115" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="52" font-weight="900">${providerText}</text>
+  ${typeText ? `<rect x="${typeX}" y="42" width="${typeW}" height="108" rx="30" fill="${accent}" fill-opacity=".96"/><text x="${typeX + typeW/2}" y="115" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="48" font-weight="900">${typeText}</text>` : ''}
+
+  <text x="56" y="${titleY}" fill="#fff" font-family="sans-serif" font-size="${portraitProfile.fontSize}" font-weight="900" letter-spacing="-.8">${titleSpans}</text>
+  <text x="56" y="${appendY}" fill="#f8fafc" font-family="sans-serif" font-size="52" font-weight="850">${appendMainText}</text>
+  <text x="56" y="${platformY}" fill="${accent}" font-family="sans-serif" font-size="54" font-weight="900">${appendProviderText}</text>
+  <rect x="0" y="0" width="1000" height="1500" rx="42" fill="none" stroke="#fff" stroke-opacity=".20" stroke-width="5"/>
+</svg>`;
 }
 
 async function handleCalendarCard(res, url) {
-  const src = url.searchParams.get('src') || '';
+  const src = optimizedCardSource(url.searchParams.get('src') || '', url.searchParams.get('layout'));
   const title = url.searchParams.get('title') || '';
   const provider = url.searchParams.get('provider') || '';
-  const badges = (url.searchParams.get('badges') || '').split('|').filter(Boolean);
-  const info = url.searchParams.get('info') || '';
+  const append = url.searchParams.get('append') || url.searchParams.get('info') || '';
   const type = url.searchParams.get('type') || '';
+  const layout = normalizedCardLayout(url.searchParams.get('layout'));
   if (!isAllowedPosterSource(src)) {
     res.statusCode = 400;
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
-    return res.end(calendarCardSvg({ title, provider, badges, info, type }));
+    return res.end(calendarCardSvg({ title, provider, append, type, layout }));
   }
 
   let imageDataUri = null;
@@ -388,13 +796,16 @@ async function handleCalendarCard(res, url) {
   try {
     const response = await fetch(src, {
       signal: controller.signal,
-      headers: { Accept: 'image/avif,image/webp,image/jpeg,image/png,*/*', 'User-Agent': `NuvioUSAReleasesCatalog/${VERSION}` }
+      headers: { Accept: 'image/jpeg,image/png,image/webp,*/*;q=0.8', 'User-Agent': `NuvioCalendar/${VERSION}` }
     });
     if (response.ok) {
       const contentType = String(response.headers?.get?.('content-type') || '').split(';')[0].trim().toLowerCase();
-      if (/^image\/(jpeg|jpg|png|webp|avif)$/.test(contentType)) {
-        const bytes = Buffer.from(await response.arrayBuffer());
-        if (bytes.length <= 5 * 1024 * 1024) imageDataUri = `data:${contentType};base64,${bytes.toString('base64')}`;
+      if (/^image\/(jpeg|jpg|png|webp)$/.test(contentType)) {
+        const declaredLength = Number(response.headers?.get?.('content-length') || 0);
+        if (!declaredLength || declaredLength <= 3.5 * 1024 * 1024) {
+          const bytes = Buffer.from(await response.arrayBuffer());
+          if (bytes.length <= 3.5 * 1024 * 1024) imageDataUri = `data:${contentType};base64,${bytes.toString('base64')}`;
+        }
       }
     }
   } catch {
@@ -405,8 +816,9 @@ async function handleCalendarCard(res, url) {
 
   res.statusCode = 200;
   res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000');
-  return res.end(calendarCardSvg({ imageDataUri, title, provider, badges, info, type }));
+  return res.end(calendarCardSvg({ imageDataUri, title, provider, append, type, layout }));
 }
 
 function requestTimeZone(req) {
@@ -414,18 +826,28 @@ function requestTimeZone(req) {
   return isValidTimeZone(fromVercel) ? fromVercel : DEFAULT_TIMEZONE;
 }
 
+function runtimeNow() {
+  const override = process.env.NUVIO_NOW_OVERRIDE;
+  if (override) {
+    const parsed = new Date(override);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return new Date();
+}
+
 function getConfig() {
   return {
     language: process.env.TMDB_LANGUAGE || DEFAULT_LANGUAGE,
     maxCandidates: Math.max(10, Math.min(200, Number(process.env.MAX_CANDIDATES || DEFAULT_MAX_CANDIDATES))),
-    maxItems: Math.max(1, Math.min(100, Number(process.env.MAX_ITEMS || DEFAULT_MAX_ITEMS))),
+    maxItems: Math.max(60, Math.min(400, Number(process.env.MAX_ITEMS || DEFAULT_MAX_ITEMS))),
+    pageSize: Math.max(20, Math.min(100, Number(process.env.PAGE_SIZE || DEFAULT_PAGE_SIZE))),
     token: process.env.TMDB_READ_TOKEN || null,
     apiKey: process.env.TMDB_API_KEY || null,
     debug: /^(1|true|yes|on)$/i.test(process.env.DEBUG || ''),
     tmdbTimeoutMs: Math.max(1000, Math.min(20000, Number(process.env.TMDB_TIMEOUT_MS || 8000))),
     sourceTimeoutMs: Math.max(1000, Math.min(20000, Number(process.env.SOURCE_TIMEOUT_MS || 8000))),
     retryBaseMs: Math.max(1, Math.min(5000, Number(process.env.RETRY_BASE_MS || process.env.TMDB_RETRY_BASE_MS || 250))),
-    calendarCards: !/^(0|false|no|off)$/i.test(process.env.RELEASE_CARDS || process.env.CALENDAR_CARDS || 'true')
+    calendarCards: !/^(0|false|no|off)$/i.test(process.env.CALENDAR_CARDS || 'true')
   };
 }
 
@@ -439,23 +861,28 @@ function requireTmdbConfig() {
   return config;
 }
 
-function buildManifest(origin) {
-  const catalogs = HOME_CATALOG_IDS.map((id) => {
-    const catalog = CATALOGS[id];
+function buildManifest(origin, now = runtimeNow(), timeZone = DEFAULT_TIMEZONE) {
+  const catalogs = buildArchiveCatalogEntries(now, timeZone).map(({ id, catalog }) => {
+    const filters = filterOptionsForCatalog(catalog).map((entry) => entry.label);
     return {
       type: catalog.type,
       id,
       name: catalog.name,
-      pageSize: getConfig().maxItems,
-      showInHome: true
+      pageSize: getConfig().pageSize,
+      showInHome: false,
+      extra: [
+        ...(filters.length ? [{ name: 'genre', isRequired: false, options: filters }] : []),
+        { name: 'skip', isRequired: false }
+      ],
+      extraSupported: [...(filters.length ? ['genre'] : []), 'skip']
     };
   });
 
   return {
-    id: 'com.nuvio.usareleases.catalog',
+    id: 'com.nuvio.calendar.archives',
     version: VERSION,
-    name: 'Nuvio USA Releases Catalog',
-    description: 'Catalogues natifs Nuvio des sorties USA : vue globale multi-plateformes, TV USA et anime, avec badges source et périodes fixes.',
+    name: 'Nuvio Calendar Archives',
+    description: 'Projet séparé d’archives mensuelles de l’année courante jusqu’à 2025. Séries Streaming, Films + VOD, Anime + Crunchyroll et TV USA restent isolés. Cartes Modern Shield 16:9 Blue Overlay XXL.',
     logo: `${origin}/logo.svg`,
     background: `${origin}/background.svg`,
     resources: [
@@ -509,7 +936,7 @@ async function tmdbFetch(path, params = {}) {
     }
     if (!config.token && config.apiKey) url.searchParams.set('api_key', config.apiKey);
 
-    const headers = { Accept: 'application/json', 'User-Agent': `NuvioUSAReleasesCatalog/${VERSION}` };
+    const headers = { Accept: 'application/json', 'User-Agent': `NuvioCalendar/${VERSION}` };
     if (config.token) headers.Authorization = `Bearer ${config.token}`;
 
     const controller = new AbortController();
@@ -689,6 +1116,155 @@ async function discoverCandidates(catalog, window, providerIds, timeZone) {
   return items.slice(0, maxCandidates);
 }
 
+function vodDiscoverParams(window, page) {
+  return {
+    language: getConfig().language,
+    page,
+    include_adult: false,
+    sort_by: 'popularity.desc',
+    region: DEFAULT_COUNTRY,
+    watch_region: DEFAULT_COUNTRY,
+    with_watch_monetization_types: 'rent|buy',
+    'release_date.gte': window.start,
+    'release_date.lte': window.end,
+    with_release_type: '4'
+  };
+}
+
+async function discoverVodCandidates(window) {
+  const maxCandidates = getConfig().maxCandidates;
+  const items = [];
+  for (let page = 1; page <= 5 && items.length < maxCandidates; page += 1) {
+    let payload;
+    try {
+      payload = await tmdbFetch('/discover/movie', vodDiscoverParams(window, page));
+    } catch (error) {
+      if (error?.code === 'TMDB_HTTP_ERROR' && [400, 422].includes(error.status)) {
+        const fallback = vodDiscoverParams(window, page);
+        delete fallback.with_watch_monetization_types;
+        payload = await tmdbFetch('/discover/movie', fallback);
+      } else {
+        throw error;
+      }
+    }
+    items.push(...(payload?.results || []));
+    if (page >= Number(payload?.total_pages || 1)) break;
+  }
+  return items.slice(0, maxCandidates);
+}
+
+function usTheatricalReleaseDates(details) {
+  const country = (details?.release_dates?.results || []).find((entry) => entry?.iso_3166_1 === DEFAULT_COUNTRY);
+  return (country?.release_dates || [])
+    .filter((entry) => [2, 3].includes(Number(entry?.type)))
+    .map((entry) => ({ ...entry, type: Number(entry.type), date: normalizeIsoDate(entry?.release_date) }))
+    .filter((entry) => entry.date)
+    .sort((a, b) => a.date.localeCompare(b.date) || b.type - a.type);
+}
+
+function selectUsTheatricalRelease(details, window, mode = 'upcoming') {
+  const dates = usTheatricalReleaseDates(details);
+  if (!dates.length) return null;
+  const preferred = (list) => list.find((entry) => entry.type === 3) || list.find((entry) => entry.type === 2) || null;
+  if (mode === 'nowplaying') {
+    // The now_playing endpoint determines whether the film is currently in US theatres.
+    // Here we only choose the best verified US theatrical date for display.
+    const eligible = dates.filter((entry) => entry.date <= window.today);
+    return preferred(eligible) || null;
+  }
+  return preferred(dates.filter((entry) => entry.date >= window.start && entry.date <= window.end));
+}
+
+async function discoverNowPlayingCandidates() {
+  const maxCandidates = getConfig().maxCandidates;
+  const items = [];
+  for (let page = 1; page <= 5 && items.length < maxCandidates; page += 1) {
+    const payload = await tmdbFetch('/movie/now_playing', {
+      language: getConfig().language,
+      region: DEFAULT_COUNTRY,
+      page
+    });
+    items.push(...(payload?.results || []));
+    if (page >= Number(payload?.total_pages || 1)) break;
+  }
+  return items.slice(0, maxCandidates);
+}
+
+function upcomingTheatricalDiscoverParams(window, page) {
+  return {
+    language: getConfig().language,
+    page,
+    include_adult: false,
+    include_video: false,
+    region: DEFAULT_COUNTRY,
+    sort_by: 'popularity.desc',
+    with_release_type: '3|2',
+    'release_date.gte': window.start,
+    'release_date.lte': window.end
+  };
+}
+
+async function discoverUpcomingTheatricalCandidates(window) {
+  const maxCandidates = getConfig().maxCandidates;
+  const items = [];
+  for (let page = 1; page <= 5 && items.length < maxCandidates; page += 1) {
+    const payload = await tmdbFetch('/discover/movie', upcomingTheatricalDiscoverParams(window, page));
+    items.push(...(payload?.results || []));
+    if (page >= Number(payload?.total_pages || 1)) break;
+  }
+  return items.slice(0, maxCandidates);
+}
+
+function theatricalMovieToMeta(details, window, mode) {
+  const release = selectUsTheatricalRelease(details, window, mode);
+  if (!release) return { meta: null, reason: 'date-unknown' };
+  const provider = mode === 'nowplaying' ? 'CINÉMA US' : 'UPCOMING US';
+  const prefix = mode === 'nowplaying' ? 'Actuellement au cinéma US' : 'Sortie cinéma US à venir';
+  const meta = baseMeta(details, 'movie', release.date, `${prefix} • ${humanCalendarDate(release.date)}`);
+  meta.description = [prefix, `Date cinéma US : ${humanCalendarDate(release.date)}`, meta.description].filter(Boolean).join('\n\n');
+  meta._calendarProvider = provider;
+  meta._calendarSource = mode === 'nowplaying' ? 'tmdb-theatrical-now' : 'tmdb-theatrical-upcoming';
+  meta._dedupeKey = `theatrical:movie:${details.id}:${release.date}`;
+  return { meta, reason: null };
+}
+
+async function buildTheatricalCatalog({ catalog, timeZone, now = new Date(), period = catalog.period, useCache = true }) {
+  const window = dateWindow(period, now, timeZone);
+  const mode = catalog.source === 'tmdb-theatrical-now' ? 'nowplaying' : 'upcoming';
+  const key = catalogCacheKey({
+    providerSlug: catalog.providerSlug, type: 'movie', period, timeZone, today: window.today,
+    sourceVersion: `${SOURCE_VERSION}-${mode}`
+  });
+  if (useCache) {
+    const cached = catalogCache.get(key);
+    if (cached) return cached;
+  }
+  const stats = emptyStats({ label: catalog.cardProvider || catalog.providerSlug, ids: [] }, catalog, window, timeZone);
+  const raw = mode === 'nowplaying' ? await discoverNowPlayingCandidates() : await discoverUpcomingTheatricalCandidates(window);
+  stats.candidates = raw.length;
+  const settled = await mapLimitSettled(raw, ENRICH_CONCURRENCY, async (candidate) => {
+    const details = await fetchDetails('movie', candidate.id);
+    return theatricalMovieToMeta(details, window, mode);
+  });
+  const metas = [];
+  for (const result of settled) {
+    if (result?.error) { stats.enrichmentErrors += 1; continue; }
+    if (!result?.meta) { stats.excludedDateUnknown += 1; continue; }
+    metas.push(result.meta);
+  }
+  const deduped = [...new Map(metas.map((meta) => [meta._dedupeKey || meta.id, meta])).values()];
+  deduped.sort((a, b) => {
+    const dateCmp = String(a.released || '').localeCompare(String(b.released || ''));
+    if (dateCmp) return mode === 'nowplaying' ? -dateCmp : dateCmp;
+    return Number(b._popularity || 0) - Number(a._popularity || 0);
+  });
+  const finalMetas = deduped.slice(0, getConfig().maxItems);
+  stats.duplicatesRemoved = Math.max(0, metas.length - deduped.length);
+  stats.final = finalMetas.length;
+  const result = { metas: finalMetas, stats };
+  return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
+}
+
 async function mapLimitSettled(items, limit, mapper) {
   const results = [];
   for (let start = 0; start < items.length; start += limit) {
@@ -715,6 +1291,91 @@ async function fetchDetails(type, tmdbId) {
     append_to_response: append
   });
   return detailsCache.set(cacheKey, details, DETAILS_TTL_MS);
+}
+
+async function fetchSeasonDetails(tmdbId, seasonNumber) {
+  const cacheKey = `season:${tmdbId}:${seasonNumber}:${getConfig().language}`;
+  const cached = detailsCache.get(cacheKey);
+  if (cached) return cached;
+  const details = await tmdbFetch(`/tv/${tmdbId}/season/${seasonNumber}`, { language: getConfig().language });
+  return detailsCache.set(cacheKey, details, DETAILS_TTL_MS);
+}
+
+function seasonCandidatesForWindow(details, window) {
+  const lowerGuard = addIsoDays(window.start, -370);
+  return (details?.seasons || [])
+    .filter((season) => Number(season?.season_number) > 0)
+    .map((season) => ({ ...season, date: normalizeIsoDate(season?.air_date) }))
+    .filter((season) => !season.date || (season.date <= window.end && season.date >= lowerGuard))
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+    .slice(0, 2);
+}
+
+function archiveEpisodeToMeta(details, episode, providerLabel, window) {
+  const date = normalizeIsoDate(episode?.air_date);
+  if (!date || date < window.start || date > window.end) return null;
+  const code = episodeCode(episode);
+  const meta = baseMeta(details, 'series', date, `${code} • ${humanCalendarDate(date)}`);
+  meta.description = [
+    `${providerLabel} US • épisode diffusé en ${String(window.start).slice(0, 4)}`,
+    episode?.name ? `${code} — ${episode.name}` : code,
+    stripHtml(episode?.overview),
+    meta.description
+  ].filter(Boolean).join('\n\n');
+  meta._eventMode = EVENT_MODES.STREAMING_DATE;
+  meta._dedupeKey = `archive:${details.id}:${episode?.season_number || 0}:${episode?.episode_number || episode?.id || date}`;
+  return meta;
+}
+
+async function buildStreamingSeriesYearArchive({ catalog, timeZone, now = new Date(), period = 'lastyear', useCache = true }) {
+  const window = dateWindow(period, now, timeZone);
+  const key = catalogCacheKey({
+    providerSlug: catalog.providerSlug, type: 'series', period, timeZone, today: window.today,
+    sourceVersion: `${SOURCE_VERSION}-series-year-archive`
+  });
+  if (useCache) {
+    const cached = catalogCache.get(key);
+    if (cached) return cached;
+  }
+  const provider = await resolveProvider(catalog.providerSlug, 'series');
+  const stats = emptyStats(provider, { ...catalog, period, source: 'tmdb-season-archive' }, window, timeZone);
+  if (!provider?.ids?.length) {
+    const result = { metas: [], stats };
+    return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
+  }
+  let raw = await discoverCandidates({ ...catalog, period }, window, provider.ids, timeZone);
+  raw = raw.slice(0, Math.min(24, getConfig().maxCandidates));
+  stats.candidates = raw.length;
+  const settled = await mapLimitSettled(raw, 5, async (candidate) => {
+    const details = await fetchDetails('series', candidate.id);
+    if (!hasProviderInFlatrate(details, provider.ids)) return { metas: [], reason: 'wrong-provider' };
+    const seasons = seasonCandidatesForWindow(details, window);
+    const seasonResults = await mapLimitSettled(seasons, 2, (season) => fetchSeasonDetails(details.id, season.season_number));
+    const metas = [];
+    for (const seasonResult of seasonResults) {
+      if (seasonResult?.error) continue;
+      for (const episode of seasonResult?.episodes || []) {
+        const meta = archiveEpisodeToMeta(details, episode, provider.label, window);
+        if (meta) metas.push(meta);
+      }
+    }
+    if (!metas.length) {
+      const fallback = seriesDetailsToMeta(details, provider.label, window);
+      if (fallback?.meta) metas.push(fallback.meta);
+    }
+    return { metas };
+  });
+  const metas = [];
+  for (const result of settled) {
+    if (result?.error) { stats.enrichmentErrors += 1; continue; }
+    if (result?.reason === 'wrong-provider') { stats.excludedWrongProvider += 1; continue; }
+    metas.push(...(result?.metas || []));
+  }
+  const sorted = sortAndDedupeMetas(metas).reverse().slice(0, getConfig().maxItems);
+  stats.duplicatesRemoved = Math.max(0, metas.length - sorted.length);
+  stats.final = sorted.length;
+  const result = { metas: sorted.map(cleanCatalogMeta), stats };
+  return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
 }
 
 function emptyStats(provider, catalog, window, timeZone) {
@@ -803,11 +1464,66 @@ async function buildStreamingCatalog({ catalog, timeZone, now = new Date(), peri
 
   const sorted = sortAndDedupeMetas(metas);
   stats.duplicatesRemoved = Math.max(0, metas.length - sorted.length);
-  const finalMetas = sorted.slice(0, getConfig().maxItems).map((meta) => ({ ...cleanCatalogMeta(meta), calendarProviders: [provider.label] }));
+  const finalMetas = sorted.slice(0, getConfig().maxItems).map(cleanCatalogMeta);
   stats.final = finalMetas.length;
   const result = { metas: finalMetas, stats };
   return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
 }
+
+async function buildVodCatalog({ catalog, timeZone, now = new Date(), period = catalog.period, useCache = true }) {
+  const window = dateWindow(period, now, timeZone);
+  const key = catalogCacheKey({
+    providerSlug: 'vod-us',
+    type: 'movie',
+    period,
+    timeZone,
+    today: window.today,
+    sourceVersion: `${SOURCE_VERSION}-vod`
+  });
+  if (useCache) {
+    const cached = catalogCache.get(key);
+    if (cached) return cached;
+  }
+
+  const stats = emptyStats({ label: 'VOD US', ids: [] }, { ...catalog, period, providerSlug: 'vod-us' }, window, timeZone);
+  if (window.empty) {
+    const result = { metas: [], stats };
+    return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
+  }
+
+  const raw = await discoverVodCandidates(window);
+  stats.candidates = raw.length;
+  const settled = await mapLimitSettled(raw, ENRICH_CONCURRENCY, async (candidate) => {
+    const details = await fetchDetails('movie', candidate.id);
+    if (!hasVodAvailability(details)) return { meta: null, reason: 'wrong-provider' };
+    const stores = usVodProviders(details).map((entry) => entry.name);
+    const label = stores.length ? `VOD US • ${stores.slice(0, 3).join(' • ')}` : 'VOD US';
+    const result = movieVodDetailsToMeta(details, label, window);
+    if (result?.meta) {
+      result.meta.description = [
+        `VOD US (achat/location) : ${stores.slice(0, 6).join(' • ')}`,
+        stripProviderLead(result.meta.description)
+      ].filter(Boolean).join('\n\n');
+    }
+    return result;
+  });
+
+  const metas = [];
+  for (const result of settled) {
+    if (result?.error) { stats.enrichmentErrors += 1; continue; }
+    if (result?.reason === 'wrong-provider') { stats.excludedWrongProvider += 1; continue; }
+    if (!result?.meta) { countReason(stats, result?.reason); continue; }
+    metas.push(result.meta);
+  }
+
+  const sorted = sortAndDedupeMetas(metas);
+  stats.duplicatesRemoved = Math.max(0, metas.length - sorted.length);
+  const finalMetas = sorted.slice(0, getConfig().maxItems).map(cleanCatalogMeta);
+  stats.final = finalMetas.length;
+  const result = { metas: finalMetas, stats };
+  return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
+}
+
 
 function isoDateRange(start, end) {
   const values = [];
@@ -822,7 +1538,7 @@ async function tvmazeFetch(path, params = {}) {
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
   }
-  return sourceFetchJson('tvmaze', url, { headers: { Accept: 'application/json', 'User-Agent': `NuvioUSAReleasesCatalog/${VERSION}` } });
+  return sourceFetchJson('tvmaze', url, { headers: { Accept: 'application/json', 'User-Agent': `NuvioCalendar/${VERSION}` } });
 }
 
 async function tvmazeScheduleDate(sourceDate) {
@@ -841,6 +1557,18 @@ function tvmazeShowFromEpisode(episode) {
 function tvmazeSourceTimezone(show) {
   const zone = show?.network?.country?.timezone || null;
   return isValidTimeZone(zone) ? zone : null;
+}
+
+const TV_USA_LOW_SIGNAL_TYPES = new Set(['news', 'talk show', 'sports']);
+const TV_USA_LOW_SIGNAL_TITLE_RE = /\b(news|nightly news|evening news|world news|news tonight|newscast|morning news|daily news|financial news|weather center|sportscenter|sports center)\b/i;
+
+function isLowSignalTvUsaEpisode(episode) {
+  const show = tvmazeShowFromEpisode(episode);
+  const type = normalizedCardToken(show?.type);
+  const title = String(show?.name || '');
+  if (TV_USA_LOW_SIGNAL_TYPES.has(type)) return true;
+  if (TV_USA_LOW_SIGNAL_TITLE_RE.test(title)) return true;
+  return false;
 }
 
 function tvmazeBroadcastToMeta(episode, timeZone, window, now = new Date()) {
@@ -922,7 +1650,7 @@ function temporalStatus(event, now, runtime) {
 async function buildTvBroadcastCatalog({ catalog, timeZone, now = new Date(), period = catalog.period, useCache = true }) {
   const window = dateWindow(period, now, timeZone);
   const key = catalogCacheKey({
-    providerSlug: 'tv-usa',
+    providerSlug: catalog?.includeLowSignal ? 'tv-usa-all' : 'tv-usa-clean',
     type: 'series',
     period,
     timeZone,
@@ -938,14 +1666,43 @@ async function buildTvBroadcastCatalog({ catalog, timeZone, now = new Date(), pe
     const result = { metas: [], stats };
     return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
   }
-  const sourceDates = isoDateRange(addIsoDays(window.start, -2), addIsoDays(window.end, 2));
-  const scheduleResults = await mapLimitSettled(sourceDates, 4, async (sourceDate) => tvmazeScheduleDate(sourceDate));
+  let scheduleResults = [];
+  if (period === 'lastyear') {
+    // Do not hammer TVmaze with 365 daily calls. The catalog itself is capped at
+    // MAX_ITEMS, so scan backwards from Dec 31 and stop once we have a generous
+    // candidate buffer for the latest archive page(s). This keeps the Home row fast.
+    const floor = addIsoDays(window.start, -2);
+    let cursor = addIsoDays(window.end, 2);
+    let scannedDays = 0;
+    let rawCount = 0;
+    const rawTarget = getConfig().maxItems * 4;
+    while (cursor >= floor && scannedDays < 56 && rawCount < rawTarget) {
+      const batch = [];
+      for (let i = 0; i < 7 && cursor >= floor; i += 1) {
+        batch.push(cursor);
+        cursor = addIsoDays(cursor, -1);
+        scannedDays += 1;
+      }
+      const settledBatch = await mapLimitSettled(batch, 4, async (sourceDate) => tvmazeScheduleDate(sourceDate));
+      scheduleResults.push(...settledBatch);
+      rawCount += settledBatch.reduce((sum, result) => sum + (Array.isArray(result) ? result.length : 0), 0);
+    }
+    stats.archiveScannedDays = scannedDays;
+  } else {
+    const sourceDates = isoDateRange(addIsoDays(window.start, -2), addIsoDays(window.end, 2));
+    scheduleResults = await mapLimitSettled(sourceDates, 4, async (sourceDate) => tvmazeScheduleDate(sourceDate));
+  }
   const raw = scheduleResults.flatMap((result) => Array.isArray(result) ? result : []);
   stats.candidates = raw.length;
   stats.enrichmentErrors += scheduleResults.filter((result) => result?.error).length;
+  stats.excludedLowSignal = 0;
 
   const metas = [];
   for (const episode of raw) {
+    if (!catalog?.includeLowSignal && isLowSignalTvUsaEpisode(episode)) {
+      stats.excludedLowSignal += 1;
+      continue;
+    }
     const converted = tvmazeBroadcastToMeta(episode, timeZone, window, now);
     if (!converted.meta) {
       if (converted.reason === 'no-imdb') stats.excludedNoImdb += 1;
@@ -956,8 +1713,9 @@ async function buildTvBroadcastCatalog({ catalog, timeZone, now = new Date(), pe
   }
 
   const sorted = sortAndDedupeMetas(metas);
+  const ordered = (period === 'lastyear' || /^archive-\d{4}-\d{2}$/.test(String(period || ''))) ? sorted.reverse() : sorted;
   stats.duplicatesRemoved = Math.max(0, metas.length - sorted.length);
-  const finalMetas = sorted.slice(0, getConfig().maxItems).map((meta) => ({ ...cleanCatalogMeta(meta), calendarProviders: ['TV USA'] }));
+  const finalMetas = ordered.slice(0, getConfig().maxItems).map(cleanCatalogMeta);
   stats.final = finalMetas.length;
   const result = { metas: finalMetas, stats };
   return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
@@ -1056,6 +1814,10 @@ function tvmazeStreamingEpisodeToMeta(episode, details, provider, timeZone, wind
 }
 
 async function buildStreamingSeriesCatalog({ catalog, timeZone, now = new Date(), period = catalog.period, useCache = true }) {
+  // A full previous-year TVmaze day-by-day scan would be far too expensive on
+  // Shield/Vercel. For this archive row we use TMDb provider validation plus
+  // exact episode air dates from season data instead of first_air_date.
+  if (period === 'lastyear' || /^archive-\d{4}-\d{2}$/.test(String(period || ''))) return buildStreamingSeriesYearArchive({ catalog, timeZone, now, period, useCache });
   const window = dateWindow(period, now, timeZone);
   const key = catalogCacheKey({
     providerSlug: catalog.providerSlug,
@@ -1063,7 +1825,7 @@ async function buildStreamingSeriesCatalog({ catalog, timeZone, now = new Date()
     period,
     timeZone,
     today: window.today,
-    sourceVersion: `${SOURCE_VERSION}-webschedule`
+    sourceVersion: `${SOURCE_VERSION}-webschedule+tmdb-fallback`
   });
   if (useCache) {
     const cached = catalogCache.get(key);
@@ -1071,7 +1833,7 @@ async function buildStreamingSeriesCatalog({ catalog, timeZone, now = new Date()
   }
 
   const provider = await resolveProvider(catalog.providerSlug, 'series');
-  const stats = emptyStats(provider, { ...catalog, period, source: 'tvmaze-web+tmdb' }, window, timeZone);
+  const stats = emptyStats(provider, { ...catalog, period, source: 'tvmaze-web+tmdb-fallback' }, window, timeZone);
   if (window.empty) {
     const result = { metas: [], stats };
     return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
@@ -1081,14 +1843,18 @@ async function buildStreamingSeriesCatalog({ catalog, timeZone, now = new Date()
     return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
   }
 
+  const metas = [];
+
+  // Pass 1 — provider-specific TVmaze web schedule. This is the highest confidence
+  // source because it can name the web channel and sometimes provides a real time.
   const dates = isoDateRange(window.start, window.end);
   const scheduleResults = await mapLimitSettled(dates, 4, (date) => tvmazeWebScheduleDate(date));
   const allEpisodes = scheduleResults.flatMap((result) => Array.isArray(result) ? result : []);
   stats.enrichmentErrors += scheduleResults.filter((result) => result?.error).length;
   const providerEpisodes = allEpisodes.filter((episode) => webChannelMatchesProvider(tvmazeShowFromEpisode(episode), provider));
-  stats.candidates = providerEpisodes.length;
+  stats.candidates += providerEpisodes.length;
 
-  const settled = await mapLimitSettled(providerEpisodes.slice(0, getConfig().maxCandidates), 5, async (episode) => {
+  const exactSettled = await mapLimitSettled(providerEpisodes.slice(0, getConfig().maxCandidates), 5, async (episode) => {
     const show = tvmazeShowFromEpisode(episode);
     const tmdbId = await resolveTvmazeShowToTmdb(show);
     if (!tmdbId) return { meta: null, reason: 'mapping' };
@@ -1097,8 +1863,7 @@ async function buildStreamingSeriesCatalog({ catalog, timeZone, now = new Date()
     return tvmazeStreamingEpisodeToMeta(episode, details, provider, timeZone, window);
   });
 
-  const metas = [];
-  for (const result of settled) {
+  for (const result of exactSettled) {
     if (result?.error) {
       stats.enrichmentErrors += 1;
       continue;
@@ -1118,9 +1883,53 @@ async function buildStreamingSeriesCatalog({ catalog, timeZone, now = new Date()
     metas.push(result.meta);
   }
 
+  // Pass 2 — TMDb fallback. TVmaze's web schedule does not list every streaming
+  // service/title, which previously made whole series catalogs look empty. TMDb is
+  // used only as a fallback candidate source, then each title is revalidated against
+  // the US flatrate provider list and MUST have last_episode_to_air or
+  // next_episode_to_air inside the requested window. Old shows with no current/new
+  // episode are still rejected.
+  let tmdbCandidates = [];
+  try {
+    tmdbCandidates = await discoverCandidates({ ...catalog, period }, window, provider.ids, timeZone);
+  } catch (error) {
+    stats.enrichmentErrors += 1;
+  }
+  stats.candidates += tmdbCandidates.length;
+
+  const fallbackSettled = await mapLimitSettled(tmdbCandidates, ENRICH_CONCURRENCY, async (candidate) => {
+    const details = await fetchDetails('series', candidate.id);
+    if (!hasProviderInFlatrate(details, provider.ids)) return { meta: null, reason: 'wrong-provider' };
+    const converted = seriesDetailsToMeta(details, provider.label, window);
+    if (!converted.meta) return converted;
+    converted.meta._dedupeKey = `series:${details.id}`;
+    converted.meta.description = [
+      `${provider.label} US • nouvel épisode confirmé TMDb`,
+      'Heure de mise en ligne non confirmée par la plateforme.',
+      converted.meta.description
+    ].filter(Boolean).join('\n\n');
+    return converted;
+  });
+
+  for (const result of fallbackSettled) {
+    if (result?.error) {
+      stats.enrichmentErrors += 1;
+      continue;
+    }
+    if (result?.reason === 'wrong-provider') {
+      stats.excludedWrongProvider += 1;
+      continue;
+    }
+    if (!result?.meta) {
+      countReason(stats, result?.reason);
+      continue;
+    }
+    metas.push(result.meta);
+  }
+
   const sorted = sortAndDedupeMetas(metas);
   stats.duplicatesRemoved = Math.max(0, metas.length - sorted.length);
-  const finalMetas = sorted.slice(0, getConfig().maxItems).map((meta) => ({ ...cleanCatalogMeta(meta), calendarProviders: [provider.label] }));
+  const finalMetas = sorted.slice(0, getConfig().maxItems).map(cleanCatalogMeta);
   stats.final = finalMetas.length;
   const result = { metas: finalMetas, stats };
   return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
@@ -1130,7 +1939,7 @@ const ANILIST_AIRING_QUERY = `
 query ($page: Int, $start: Int, $end: Int) {
   Page(page: $page, perPage: 50) {
     pageInfo { currentPage hasNextPage }
-    airingSchedules(airingAt_greater: $start, airingAt_lesser: $end) {
+    airingSchedules(airingAt_greater: $start, airingAt_lesser: $end, sort: TIME_DESC) {
       id
       airingAt
       episode
@@ -1179,7 +1988,7 @@ async function anilistFetch(query, variables = {}) {
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      'User-Agent': `NuvioUSAReleasesCatalog/${VERSION}`
+      'User-Agent': `NuvioCalendar/${VERSION}`
     },
     body: JSON.stringify({ query, variables })
   });
@@ -1312,7 +2121,10 @@ async function buildAnimeCatalog({ catalog, timeZone, now = new Date(), period =
   const filtered = schedules.filter((schedule) => !schedule?.media?.isAdult);
   stats.candidates = filtered.length;
 
-  const settled = await mapLimitSettled(filtered.slice(0, getConfig().maxCandidates), 5, async (schedule) => {
+  const animeCandidateLimit = period === 'lastyear'
+    ? Math.min(32, getConfig().maxCandidates)
+    : getConfig().maxCandidates;
+  const settled = await mapLimitSettled(filtered.slice(0, animeCandidateLimit), 5, async (schedule) => {
     const tmdbId = await resolveAnimeToTmdb(schedule.media);
     if (!tmdbId) return { meta: null, reason: 'mapping' };
     const details = await fetchDetails('series', tmdbId);
@@ -1338,144 +2150,248 @@ async function buildAnimeCatalog({ catalog, timeZone, now = new Date(), period =
 
   const sorted = sortAndDedupeMetas(metas);
   stats.duplicatesRemoved = Math.max(0, metas.length - sorted.length);
-  const finalMetas = sorted.slice(0, getConfig().maxItems).map((meta) => ({ ...cleanCatalogMeta(meta), calendarProviders: ['Anime'] }));
+  const finalMetas = sorted.slice(0, getConfig().maxItems).map(cleanCatalogMeta);
   stats.final = finalMetas.length;
   const result = { metas: finalMetas, stats };
   return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
 }
 
-function publicGlobalSortAndMerge(metas = []) {
+
+function combinedLeafCatalogs(catalogOrType) {
+  const catalog = typeof catalogOrType === 'string' ? { type: catalogOrType, section: catalogOrType === 'movie' ? 'films' : 'series-streaming' } : catalogOrType;
+  const type = catalog.type;
+  const section = catalogSection(catalog);
+  if (section === 'tvusa') return [{ type: 'series', name: 'TV USA', providerSlug: 'tv-usa', period: 'today', source: 'tvmaze-broadcast', includeLowSignal: false, explore: false, section: 'tvusa' }];
+  if (section === 'anime') return [
+    { type: 'series', name: 'Crunchyroll', providerSlug: 'crunchyroll', period: 'today', source: 'tmdb-streaming', explore: false, section: 'anime' },
+    { type: 'series', name: 'Anime', providerSlug: 'anime', period: 'today', source: 'anilist-airing', explore: false, section: 'anime' }
+  ];
+  const streaming = STREAMING_PROVIDERS.map((provider) => ({ type, name: provider.label, providerSlug: provider.slug, period: 'today', source: 'tmdb-streaming', explore: false, section }));
+  if (section === 'films') {
+    return [
+      ...streaming,
+      { type: 'movie', name: 'VOD US', providerSlug: 'vod-us', period: 'today', source: 'tmdb-vod', explore: false, section: 'films' }
+    ];
+  }
+  return streaming;
+}
+
+function releaseEpisodeToken(meta) {
+  const text = String(meta?.releaseInfo || '');
+  return text.match(/S\d{1,2}E\d{1,3}/i)?.[0]?.toUpperCase()
+    || text.match(/Épisode\s+\d+/i)?.[0]?.toLowerCase()
+    || '';
+}
+
+function releaseClockMinutes(meta) {
+  const match = String(meta?.releaseInfo || '').match(/(?:^|\s|•)([01]\d|2[0-3]):([0-5]\d)\b/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function combinedEventKey(meta, leaf) {
+  const base = `${meta?.id || meta?.name || 'unknown'}:${meta?.released || ''}`;
+  if (leaf.type === 'movie' && (leaf.source === 'tmdb-streaming' || leaf.source === 'tmdb-vod')) {
+    // Subscription streaming and transactional VOD are one digital movie event
+    // when TMDb gives the same US Digital date. This prevents duplicate cards.
+    return `digital:movie:${base}`;
+  }
+  if (leaf.source === 'tmdb-streaming') {
+    const episode = releaseEpisodeToken(meta);
+    return `streaming:series:${base}:${episode || String(meta?.releaseInfo || '')}`;
+  }
+  // TV broadcast and original anime airing are distinct events even when the
+  // same title also has a streaming release on the same civil date.
+  return `${leaf.source}:${base}:${String(meta?.releaseInfo || '')}`;
+}
+
+function stripProviderLead(description) {
+  const parts = String(description || '').split(/\n\n+/).filter(Boolean);
+  if (parts.length && /\bUS\s*•/i.test(parts[0])) parts.shift();
+  return parts.join('\n\n');
+}
+
+function mergeCombinedMetas(results, type, period = 'week') {
   const map = new Map();
-  for (const input of metas.filter(Boolean)) {
-    const providers = Array.isArray(input.calendarProviders) ? input.calendarProviders.filter(Boolean) : [];
-    const key = [input.type, input.id, input.released || '', input.releaseInfo || ''].join(':');
-    const previous = map.get(key);
-    if (!previous) {
-      map.set(key, { ...input, calendarProviders: [...new Set(providers)] });
-      continue;
+  for (const entry of results) {
+    if (!entry || entry.error || !entry.leaf || !entry.result) continue;
+    const leaf = entry.leaf;
+    for (const original of entry.result.metas || []) {
+      const provider = leaf.name;
+      const key = combinedEventKey(original, leaf);
+      const current = map.get(key);
+      if (!current) {
+        const meta = { ...original };
+        meta._calendarProviders = [provider];
+        meta._calendarProvider = provider;
+        meta._calendarSource = leaf.source;
+        map.set(key, meta);
+        continue;
+      }
+
+      const currentDigital = current._calendarSource === 'tmdb-streaming' || current._calendarSource === 'tmdb-vod' || current._calendarSource === 'tmdb-digital';
+      const incomingDigital = leaf.source === 'tmdb-streaming' || leaf.source === 'tmdb-vod';
+      if (currentDigital && incomingDigital) {
+        if (!current._calendarProviders.includes(provider)) current._calendarProviders.push(provider);
+        const currentTime = releaseClockMinutes(current);
+        const incomingTime = releaseClockMinutes(original);
+        // Prefer a provider-specific real schedule time over a date-only fallback.
+        if (currentTime === null && incomingTime !== null) {
+          const providers = current._calendarProviders;
+          Object.assign(current, original);
+          current._calendarProviders = providers;
+        }
+        current._calendarSource = 'tmdb-digital';
+      }
     }
-    previous.calendarProviders = [...new Set([...(previous.calendarProviders || []), ...providers])];
-    if (!previous.poster && input.poster) previous.poster = input.poster;
-    if (!previous.background && input.background) previous.background = input.background;
   }
-  return [...map.values()].sort((a, b) => {
+
+  const values = [...map.values()];
+  for (const meta of values) {
+    const providers = [...new Set(meta._calendarProviders || [])];
+    meta._calendarProvider = providers.join(' + ') || 'Calendar USA';
+    if (meta._calendarSource === 'tmdb-streaming' || meta._calendarSource === 'tmdb-vod' || meta._calendarSource === 'tmdb-digital') {
+      const body = stripProviderLead(meta.description);
+      meta.description = [
+        `Plateforme${providers.length > 1 ? 's' : ''} US : ${providers.join(' • ')}`,
+        body
+      ].filter(Boolean).join('\n\n');
+    }
+  }
+
+  const historical = /^archive-\d{4}-\d{2}$/.test(String(period || '')) || ['lastyear', 'lastmonth', 'lastweek', 'month', 'past7', 'nowplaying'].includes(period);
+  values.sort((a, b) => {
     const dateCmp = String(a.released || '').localeCompare(String(b.released || ''));
-    if (dateCmp) return dateCmp;
-    const ta = String(a.releaseInfo || '').match(/\b([01]\d|2[0-3]):[0-5]\d\b/)?.[0] || '99:99';
-    const tb = String(b.releaseInfo || '').match(/\b([01]\d|2[0-3]):[0-5]\d\b/)?.[0] || '99:99';
-    if (ta !== tb) return ta.localeCompare(tb);
-    return String(a.name || '').localeCompare(String(b.name || ''));
+    if (dateCmp) return historical ? -dateCmp : dateCmp;
+    const at = releaseClockMinutes(a);
+    const bt = releaseClockMinutes(b);
+    if (at !== null || bt !== null) {
+      if (at === null) return 1;
+      if (bt === null) return -1;
+      if (at !== bt) return historical ? bt - at : at - bt;
+    }
+    return String(a.name || '').localeCompare(String(b.name || ''), 'fr');
   });
+
+  return values.slice(0, getConfig().maxItems);
 }
 
-async function resolvedProviders(type) {
-  const directory = await providerDirectory(type);
-  return PROVIDERS.map((definition) => resolveProviderFromDirectory(definition, directory)).filter((provider) => provider.ids.length);
-}
-
-function matchingProviderLabels(details, providers) {
-  const active = new Set((details?.['watch/providers']?.results?.[DEFAULT_COUNTRY]?.flatrate || [])
-    .map((entry) => Number(entry?.provider_id)).filter(Number.isFinite));
-  return providers.filter((provider) => provider.ids.some((id) => active.has(Number(id)))).map((provider) => provider.label);
-}
-
-async function buildGlobalMovieCatalog({ catalog, timeZone, now = new Date(), period = catalog.period, useCache = true }) {
+async function buildCombinedCatalog({ catalog, timeZone, now = new Date(), period = catalog.period, useCache = true, filter = null }) {
   const window = dateWindow(period, now, timeZone);
-  const key = catalogCacheKey({ providerSlug: 'global', type: 'movie', period, timeZone, today: window.today, sourceVersion: `${SOURCE_VERSION}-global-movie` });
-  if (useCache) { const cached = catalogCache.get(key); if (cached) return cached; }
-  const stats = emptyStats(null, { ...catalog, period }, window, timeZone);
-  const providers = await resolvedProviders('movie');
-  const ids = [...new Set(providers.flatMap((provider) => provider.ids))];
-  if (window.empty || !ids.length) return { metas: [], stats };
-  const raw = await discoverCandidates({ ...catalog, type: 'movie', period }, window, ids, timeZone);
-  stats.candidates = raw.length;
-  const settled = await mapLimitSettled(raw, ENRICH_CONCURRENCY, async (candidate) => {
-    const details = await fetchDetails('movie', candidate.id);
-    const labels = matchingProviderLabels(details, providers);
-    if (!labels.length) return { meta: null, reason: 'wrong-provider' };
-    const converted = movieDetailsToMeta(details, labels.join(' • '), window);
-    if (converted.meta) converted.meta.calendarProviders = labels;
-    return converted;
+  const filterKey = filter?.value || 'all';
+  const section = catalogSection(catalog);
+  const key = catalogCacheKey({
+    providerSlug: `${section}-${filterKey}`,
+    type: catalog.type,
+    period,
+    timeZone,
+    today: window.today,
+    sourceVersion: `${SOURCE_VERSION}-aggregate`
   });
-  const metas = [];
-  for (const result of settled) {
-    if (result?.error) { stats.enrichmentErrors += 1; continue; }
-    if (!result?.meta) { if (result?.reason === 'wrong-provider') stats.excludedWrongProvider += 1; else countReason(stats, result?.reason); continue; }
-    metas.push({ ...cleanCatalogMeta(result.meta), calendarProviders: result.meta.calendarProviders || [] });
+  if (useCache) {
+    const cached = catalogCache.get(key);
+    if (cached) return cached;
   }
-  const finalMetas = publicGlobalSortAndMerge(metas).slice(0, getConfig().maxItems);
-  stats.final = finalMetas.length;
-  const result = { metas: finalMetas, stats };
-  return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
-}
 
-async function buildGlobalSeriesCatalog({ catalog, timeZone, now = new Date(), period = catalog.period, useCache = true }) {
-  const window = dateWindow(period, now, timeZone);
-  const key = catalogCacheKey({ providerSlug: 'global', type: 'series', period, timeZone, today: window.today, sourceVersion: `${SOURCE_VERSION}-global-series` });
-  if (useCache) { const cached = catalogCache.get(key); if (cached) return cached; }
-  const stats = emptyStats(null, { ...catalog, period }, window, timeZone);
-  if (window.empty) return { metas: [], stats };
-  const providers = await resolvedProviders('series');
-  const dates = isoDateRange(window.start, window.end);
-  const scheduleResults = await mapLimitSettled(dates, 4, (date) => tvmazeWebScheduleDate(date));
-  const episodes = scheduleResults.flatMap((result) => Array.isArray(result) ? result : []);
-  const providerEpisodes = episodes.map((episode) => {
-    const show = tvmazeShowFromEpisode(episode);
-    const provider = providers.find((candidate) => webChannelMatchesProvider(show, candidate));
-    return provider ? { episode, provider } : null;
-  }).filter(Boolean);
-  stats.candidates = providerEpisodes.length;
-  const settled = await mapLimitSettled(providerEpisodes.slice(0, getConfig().maxCandidates), 5, async ({ episode, provider }) => {
-    const show = tvmazeShowFromEpisode(episode);
-    const tmdbId = await resolveTvmazeShowToTmdb(show);
-    if (!tmdbId) return { meta: null, reason: 'mapping' };
-    const details = await fetchDetails('series', tmdbId);
-    if (!hasProviderInFlatrate(details, provider.ids)) return { meta: null, reason: 'wrong-provider' };
-    const converted = tvmazeStreamingEpisodeToMeta(episode, details, provider, timeZone, window);
-    if (converted.meta) converted.meta.calendarProviders = [provider.label];
-    return converted;
-  });
-  const streaming = [];
-  for (const result of settled) {
-    if (result?.error) { stats.enrichmentErrors += 1; continue; }
-    if (!result?.meta) continue;
-    streaming.push({ ...cleanCatalogMeta(result.meta), calendarProviders: result.meta.calendarProviders || [] });
+  const stats = {
+    provider: section,
+    providerSlug: section,
+    source: 'combined-calendar',
+    section,
+    providerIds: [],
+    type: catalog.type,
+    period,
+    timezone: timeZone,
+    today: window.today,
+    start: window.start,
+    end: window.end,
+    sourceErrors: 0,
+    sources: {},
+    final: 0
+  };
+  if (window.empty) {
+    const result = { metas: [], stats };
+    return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
   }
-  const [tv, anime] = await Promise.all([
-    buildTvBroadcastCatalog({ catalog: CATALOGS['calendar-tv-usa-series'], timeZone, now, period, useCache: true }),
-    buildAnimeCatalog({ catalog: CATALOGS['calendar-anime-series'], timeZone, now, period, useCache: true })
-  ]);
-  const finalMetas = publicGlobalSortAndMerge([...streaming, ...(tv.metas || []), ...(anime.metas || [])]).slice(0, getConfig().maxItems);
-  stats.final = finalMetas.length;
-  const result = { metas: finalMetas, stats };
+
+  let leaves = combinedLeafCatalogs(catalog);
+  if (filter?.kind === 'provider') {
+    leaves = leaves.filter((leaf) => leaf.providerSlug === filter.value);
+  } else if (filter?.value === 'tv-usa') {
+    leaves = leaves.filter((leaf) => leaf.source === 'tvmaze-broadcast').map((leaf) => ({ ...leaf, includeLowSignal: false }));
+  } else if (filter?.value === 'tv-usa-all') {
+    leaves = leaves.filter((leaf) => leaf.source === 'tvmaze-broadcast').map((leaf) => ({ ...leaf, includeLowSignal: true }));
+  } else if (filter?.value === 'anime-airing') {
+    leaves = leaves.filter((leaf) => leaf.source === 'anilist-airing');
+  } else if (filter?.value === 'vod') {
+    leaves = leaves.filter((leaf) => leaf.source === 'tmdb-vod');
+  }
+  const settled = await mapLimitSettled(leaves, 3, async (leaf) => {
+    const result = await buildCatalog({ catalog: { ...leaf, period }, timeZone, now, period, useCache });
+    return { leaf, result };
+  });
+
+  const normalized = settled.map((entry, index) => {
+    if (entry?.error) {
+      stats.sourceErrors += 1;
+      const leaf = leaves[index];
+      stats.sources[leaf?.name || `source-${index}`] = { error: true };
+      return { error: entry.error, leaf };
+    }
+    stats.sources[entry.leaf.name] = {
+      error: false,
+      final: Number(entry.result?.stats?.final || entry.result?.metas?.length || 0)
+    };
+    return entry;
+  });
+
+  const metas = mergeCombinedMetas(normalized, catalog.type, period);
+  stats.final = metas.length;
+  const result = { metas, stats };
   return useCache ? catalogCache.set(key, result, CATALOG_TTL_MS) : result;
 }
 
 async function buildCatalog(options) {
   const source = options.catalog.source;
-  if (source === 'global') return options.catalog.type === 'movie' ? buildGlobalMovieCatalog(options) : buildGlobalSeriesCatalog(options);
+  if (source === 'combined-calendar') return buildCombinedCatalog(options);
   if (source === 'tvmaze-broadcast') return buildTvBroadcastCatalog(options);
   if (source === 'anilist-airing') return buildAnimeCatalog(options);
+  if (source === 'tmdb-vod') return buildVodCatalog(options);
+  if (source === 'tmdb-theatrical-now' || source === 'tmdb-theatrical-upcoming') return buildTheatricalCatalog(options);
   if (source === 'tmdb-streaming' && options.catalog.type === 'series') return buildStreamingSeriesCatalog(options);
   return buildStreamingCatalog(options);
 }
 
 async function handleCatalog(req, res, type, catalogId, extras = {}, url = null) {
-  const catalog = CATALOGS[catalogId];
-  if (!catalog || catalog.type !== type) return json(res, 404, { metas: [] });
+  const startedAt = Date.now();
   const timeZone = requestTimeZone(req);
-  const requestedPeriod = extras.genre || extras.period || url?.searchParams?.get('period');
-  // Explore catalogs default to today. Legacy v4 IDs retain their historical
-  // fixed period when no extra was supplied.
-  const fallbackPeriod = catalog.explore ? 'today' : catalog.period;
-  const period = periodFromExtra(requestedPeriod, fallbackPeriod);
-  const result = await buildCatalog({ catalog, timeZone, now: new Date(), period, useCache: true });
+  const now = runtimeNow();
+  const catalog = resolveArchiveCatalog(catalogId, type, now, timeZone);
+  if (!catalog) return json(res, 404, { metas: [] });
+  // Period is fixed by the archive catalog ID; query/extra cannot widen a month.
+  const period = catalog.period;
+  const requestedFilter = extras.genre || url?.searchParams?.get('genre') || url?.searchParams?.get('filter');
+  const filter = catalog.source === 'combined-calendar' ? filterFromExtra(requestedFilter, catalog) : null;
+  const skip = parseSkip(extras.skip ?? url?.searchParams?.get('skip'));
+  const result = await buildCatalog({ catalog, timeZone, now, period, useCache: true, filter });
+  const allMetas = catalog.source === 'combined-calendar'
+    ? filterCombinedMetas(result.metas, filter, type)
+    : result.metas;
+  const pageSize = getConfig().pageSize;
+  const pagedMetas = allMetas.slice(skip, skip + pageSize);
   const origin = requestOrigin(req);
-  const decoratedMetas = decorateCatalogMetas(origin, result.metas, catalog, timeZone);
+  const decoratedMetas = decorateCatalogMetas(origin, pagedMetas, catalog, timeZone);
   res.setHeader('Vary', 'x-vercel-ip-timezone');
   res.setHeader('X-Nuvio-Calendar-Date', result.stats.today);
   res.setHeader('X-Nuvio-Calendar-Period', period);
-  return json(res, 200, { metas: decoratedMetas }, 'private, max-age=60');
+  res.setHeader('X-Nuvio-Calendar-Filter', filter?.value || 'all');
+  res.setHeader('X-Nuvio-Calendar-Skip', String(skip));
+  res.setHeader('X-Nuvio-Calendar-Total', String(allMetas.length));
+  res.setHeader('X-Nuvio-Calendar-Source-Errors', String(Number(result.stats?.sourceErrors || 0)));
+  res.setHeader('Server-Timing', `calendar;dur=${Date.now() - startedAt}`);
+  const monthWindow = dateWindow(period, now, timeZone);
+  const currentMonth = period === `archive-${monthWindow.today.slice(0, 7)}`;
+  const cacheControl = monthWindow.empty ? 'public, max-age=300, s-maxage=3600' : (currentMonth ? 'private, max-age=60' : 'public, max-age=300, s-maxage=21600, stale-while-revalidate=86400');
+  return json(res, 200, { metas: decoratedMetas }, cacheControl);
 }
 
 async function lookupTmdbFromExternal(id, type, externalSource = 'imdb_id') {
@@ -1535,7 +2451,7 @@ async function sourceHealth() {
 async function handleHealth(req, res) {
   const configured = Boolean(getConfig().token || getConfig().apiKey);
   const timeZone = requestTimeZone(req);
-  const now = new Date();
+  const now = runtimeNow();
   const today = localIsoDate(now, timeZone);
   const currentTime = localTime(now, timeZone);
   if (!configured) {
@@ -1544,8 +2460,11 @@ async function handleHealth(req, res) {
       ok: false,
       version: VERSION,
       market: DEFAULT_COUNTRY,
-      mode: 'usa-releases-catalog',
-      periods: PERIOD_OPTIONS.map((entry) => entry.label),
+      mode: 'calendar-archives-modern-shield',
+      archive: { minYear: ARCHIVE_MIN_YEAR, granularity: 'month', months: ARCHIVE_MONTHS_FR },
+      filters: { movie: filterOptionsForType('movie').map((entry) => entry.label), series: filterOptionsForType('series').map((entry) => entry.label) },
+      pageSize: getConfig().pageSize,
+      cards: { enabled: getConfig().calendarCards, appendFirst: true, livePoster: '16:9 center-safe', portrait: '2:3', landscape: '16:9', androidTvSafeSvg: true },
       timezone: timeZone,
       today,
       currentTime,
@@ -1564,8 +2483,11 @@ async function handleHealth(req, res) {
       ok: true,
       version: VERSION,
       market: DEFAULT_COUNTRY,
-      mode: 'usa-releases-catalog',
-      periods: PERIOD_OPTIONS.map((entry) => entry.label),
+      mode: 'calendar-archives-modern-shield',
+      archive: { minYear: ARCHIVE_MIN_YEAR, granularity: 'month', months: ARCHIVE_MONTHS_FR },
+      filters: { movie: filterOptionsForType('movie').map((entry) => entry.label), series: filterOptionsForType('series').map((entry) => entry.label) },
+      pageSize: getConfig().pageSize,
+      cards: { enabled: getConfig().calendarCards, appendFirst: true, livePoster: '16:9 center-safe', portrait: '2:3', landscape: '16:9', androidTvSafeSvg: true },
       timezone: timeZone,
       today,
       currentTime,
@@ -1580,8 +2502,11 @@ async function handleHealth(req, res) {
       ok: false,
       version: VERSION,
       market: DEFAULT_COUNTRY,
-      mode: 'usa-releases-catalog',
-      periods: PERIOD_OPTIONS.map((entry) => entry.label),
+      mode: 'calendar-archives-modern-shield',
+      archive: { minYear: ARCHIVE_MIN_YEAR, granularity: 'month', months: ARCHIVE_MONTHS_FR },
+      filters: { movie: filterOptionsForType('movie').map((entry) => entry.label), series: filterOptionsForType('series').map((entry) => entry.label) },
+      pageSize: getConfig().pageSize,
+      cards: { enabled: getConfig().calendarCards, appendFirst: true, livePoster: '16:9 center-safe', portrait: '2:3', landscape: '16:9', androidTvSafeSvg: true },
       timezone: timeZone,
       today,
       currentTime,
@@ -1598,7 +2523,7 @@ async function handleDebugProvider(req, res, providerSlug, url) {
   if (!getConfig().debug) return json(res, 404, { error: 'Not found' }, 'no-store');
   const definition = PROVIDER_BY_SLUG.get(providerSlug);
   if (!definition) return json(res, 404, { error: 'Unknown provider' }, 'no-store');
-  const period = ['month', 'past7', 'today', 'tomorrow', 'week', 'upcoming'].includes(url.searchParams.get('period'))
+  const period = ['lastmonth', 'lastweek', 'today', 'tomorrow', 'next7', 'month', 'past7', 'week', 'upcoming'].includes(url.searchParams.get('period'))
     ? url.searchParams.get('period')
     : 'week';
   const timeZone = requestTimeZone(req);
@@ -1620,16 +2545,49 @@ async function handleDebugProvider(req, res, providerSlug, url) {
     market: DEFAULT_COUNTRY,
     provider: definition.label,
     timezone: timeZone,
-    today: localIsoDate(new Date(), timeZone),
+    today: localIsoDate(runtimeNow(), timeZone),
     period,
     stats: output
+  }, 'no-store');
+}
+
+async function handleDebugCatalog(req, res, type, period) {
+  if (!getConfig().debug) return json(res, 404, { error: 'Not found' }, 'no-store');
+  if (!['movie', 'series'].includes(type) || !['lastmonth', 'lastweek', 'today', 'tomorrow', 'next7', 'month', 'past7', 'week'].includes(period)) {
+    return json(res, 400, { error: 'Invalid type or period' }, 'no-store');
+  }
+  const timeZone = requestTimeZone(req);
+  const catalog = CATALOGS[`calendar-${period}-${type}`];
+  if (!catalog) return json(res, 404, { error: 'Catalog not found' }, 'no-store');
+  const result = await buildCombinedCatalog({ catalog, timeZone, now: runtimeNow(), period, useCache: false, filter: null });
+  const providerCounts = {};
+  const sourceCounts = {};
+  for (const meta of result.metas || []) {
+    for (const provider of meta._calendarProviders || []) providerCounts[provider] = (providerCounts[provider] || 0) + 1;
+    const source = meta._calendarSource || 'unknown';
+    sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+  }
+  return json(res, 200, {
+    ok: true,
+    version: VERSION,
+    market: DEFAULT_COUNTRY,
+    type,
+    period,
+    timezone: timeZone,
+    start: result.stats?.start || null,
+    end: result.stats?.end || null,
+    total: result.metas?.length || 0,
+    sourceErrors: result.stats?.sourceErrors || 0,
+    sources: result.stats?.sources || {},
+    sourceCounts,
+    providerCounts
   }, 'no-store');
 }
 
 async function handleDebugTime(req, res) {
   if (!getConfig().debug) return json(res, 404, { error: 'Not found' }, 'no-store');
   const viewerTimezone = requestTimeZone(req);
-  const now = new Date();
+  const now = runtimeNow();
   return json(res, 200, {
     viewerTimezone,
     viewerNow: {
@@ -1649,7 +2607,7 @@ async function anilistScheduleById(id) {
 async function handleDebugAiring(req, res, debugId) {
   if (!getConfig().debug) return json(res, 404, { error: 'Not found' }, 'no-store');
   const timeZone = requestTimeZone(req);
-  const now = new Date();
+  const now = runtimeNow();
   const window = dateWindow('week', now, timeZone);
   if (/^tvmaze-\d+$/.test(debugId)) {
     const id = Number(debugId.slice('tvmaze-'.length));
@@ -1683,12 +2641,15 @@ async function handleDebugAiring(req, res, debugId) {
 
 function landing(origin, timeZone = DEFAULT_TIMEZONE) {
   const manifest = `${origin}/manifest.json`;
+  const blueprint = `${origin}/archive-blueprint.json`;
   const configured = Boolean(getConfig().token || getConfig().apiKey);
-  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nuvio USA Releases Catalog</title><style>body{margin:0;background:#08111f;color:#f7f7fb;font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}.card{max-width:900px;margin:24px;padding:32px;border:1px solid #26364d;border-radius:24px;background:#0e1a2b}h1{margin-top:0}.pill{display:inline-block;background:#2563eb;padding:8px 14px;border-radius:999px;font-weight:800}code{display:block;overflow-wrap:anywhere;background:#07101c;padding:14px;border-radius:12px;margin:14px 0}a{color:#7dd3fc}.muted{color:#aab2c0}.ok{color:#7ee787}.bad{color:#ff7b72}</style></head><body><main class="card"><span class="pill">ADD-ON INDÉPENDANT • CATALOGUES</span><h1>Nuvio USA Releases Catalog ${VERSION}</h1><p>Projet séparé du Calendar et de l'ancien USA Releases. Il transforme le même moteur dynamique en vrais catalogues Nuvio Home/See-All.</p><p><b>10 lignes natives :</b> Films + Séries pour Aujourd’hui, Demain, 7 prochains jours, 7 derniers jours et Ce mois.</p><p>Chaque carte conserve les badges Netflix / Prime Video / Disney+ / Max / Apple TV+ / Hulu / Paramount+ / Peacock / Crunchyroll / TV USA / Anime. Les doublons multi-plateformes sont fusionnés avec plusieurs badges.</p><p>Fuseau spectateur : <b>${timeZone}</b> — Marché streaming : <b>US</b></p><p>TMDb : <b class="${configured ? 'ok' : 'bad'}">${configured ? 'configuré' : 'clé manquante'}</b></p><p>URL NuvioTV :</p><code>${manifest}</code><p><a href="${manifest}">Ouvrir manifest.json</a> · <a href="${origin}/health">Health</a></p><p class="muted">Streaming : date civile US officielle. TV USA : timestamp réel converti dans le fuseau du spectateur. Anime : airing original AniList converti localement, sans prétendre qu'il s'agit d'une heure Crunchyroll. This product uses the TMDB API but is not endorsed or certified by TMDB.</p></main></body></html>`;
+  const { year } = archiveNowParts(runtimeNow(), timeZone);
+  const years = year >= ARCHIVE_MIN_YEAR ? Array.from({ length: year - ARCHIVE_MIN_YEAR + 1 }, (_, i) => year - i) : [];
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nuvio Calendar Archives</title><style>body{margin:0;background:#050a12;color:#f8fbff;font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}.card{max-width:920px;margin:24px;padding:32px;border:1px solid #17365e;border-radius:24px;background:linear-gradient(145deg,#08111f,#0a2344)}h1{margin-top:0}.pill{display:inline-block;background:#0b67c2;padding:8px 14px;border-radius:999px;font-weight:800}code{display:block;overflow-wrap:anywhere;background:#030912;padding:14px;border-radius:12px;margin:14px 0}a{color:#58c7ff}.muted{color:#a9bdd4}.ok{color:#7ee787}.bad{color:#ff7b72}</style></head><body><main class="card"><span class="pill">PROJET SÉPARÉ • ARCHIVES MODERN SHIELD</span><h1>Nuvio Calendar Archives ${VERSION}</h1><p>Archives mensuelles dynamiques de <b>${years.join(', ') || ARCHIVE_MIN_YEAR}</b>, plancher ${ARCHIVE_MIN_YEAR}. Chaque année pré-déclare Janvier→Décembre : les mois futurs restent vides et ne font aucun appel, puis s’alimentent automatiquement quand la date arrive.</p><p>Design : <b>Modern View NVIDIA Shield</b>, carte 16:9, artwork cover plein cadre, background Calendar forcé, logo transparent et overlay bleu XXL identique au Calendar principal.</p><p>Sections séparées : 📺 Séries Streaming · 🎬 Films + VOD · 🎌 Anime + Crunchyroll · 🇺🇸 TV USA.</p><p>Fuseau spectateur : <b>${timeZone}</b> — marché streaming : <b>US</b> — TMDb : <b class="${configured ? 'ok' : 'bad'}">${configured ? 'configuré' : 'clé manquante'}</b></p><p>Manifest :</p><code>${manifest}</code><p><a href="${manifest}">manifest.json</a> · <a href="${blueprint}">blueprint Collections</a> · <a href="${origin}/health">health</a></p><p class="muted">Nuvio Collections/Folders est stocké côté application. L’addon fournit tous les catalogues mensuels et un blueprint prêt à câbler, mais il ne peut pas injecter lui-même le dossier 2025/2026 dans l’APK officiel. Une fois les 12 sources d’une année câblées, les mois futurs apparaissent sans réorganisation.</p></main></body></html>`;
 }
 
-const LOGO = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#08111f"/><rect x="70" y="82" width="372" height="348" rx="78" fill="#0e1a2b" stroke="#2563eb" stroke-width="18"/><path d="M118 176h276M118 252h276M118 328h180" stroke="#fff" stroke-width="24" stroke-linecap="round"/><text x="313" y="360" fill="#60a5fa" font-family="Arial,sans-serif" font-size="72" font-weight="900">USA</text></svg>`;
-const BG = `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#08111f"/><stop offset="1" stop-color="#172554"/></linearGradient></defs><rect width="1920" height="1080" fill="url(#g)"/><circle cx="1510" cy="210" r="430" fill="#2563eb" opacity=".20"/></svg>`;
+const LOGO = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#0b0f17"/><rect x="80" y="84" width="352" height="344" rx="76" fill="#171d2a" stroke="#38bdf8" stroke-width="18"/><path d="M128 188h256M128 260h256M128 332h172" stroke="#fff" stroke-width="26" stroke-linecap="round"/><text x="317" y="359" fill="#38bdf8" font-family="Arial,sans-serif" font-size="92" font-weight="700">CAL</text></svg>`;
+const BG = `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0b0f17"/><stop offset="1" stop-color="#24154a"/></linearGradient></defs><rect width="1920" height="1080" fill="url(#g)"/><circle cx="1500" cy="220" r="420" fill="#38bdf8" opacity=".18"/></svg>`;
 
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') {
@@ -1705,13 +2666,17 @@ module.exports = async function handler(req, res) {
 
   try {
     if (path === '/' || path === '/index.html') return html(res, landing(origin, requestTimeZone(req)));
-    if (path === '/manifest.json') return json(res, 200, buildManifest(origin), 'public, max-age=300, s-maxage=900');
+    if (path === '/manifest.json') { const tz = requestTimeZone(req); return json(res, 200, buildManifest(origin, runtimeNow(), tz), 'public, max-age=300, s-maxage=900'); }
     if (path === '/logo.svg') return svg(res, LOGO);
     if (path === '/background.svg') return svg(res, BG);
-    if (path === '/release-card.svg' || path === '/calendar-card.svg') return await handleCalendarCard(res, url);
+    if (path === '/calendar-transparent-logo.svg') return svg(res, '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="16" viewBox="0 0 64 16"><rect width="64" height="16" fill="none"/></svg>', 'public, max-age=31536000, immutable');
+    if (path === '/calendar-card.svg') return await handleCalendarCard(res, url);
     if (path === '/health') return await handleHealth(req, res);
+    if (path === '/archive-blueprint.json') return json(res, 200, buildArchiveBlueprint(runtimeNow(), requestTimeZone(req)), 'no-store');
 
     if (path === '/debug/time') return await handleDebugTime(req, res);
+    const debugCatalogMatch = path.match(/^\/debug\/catalog\/(movie|series)\/(month|past7|today|tomorrow|week)$/);
+    if (debugCatalogMatch) return await handleDebugCatalog(req, res, debugCatalogMatch[1], debugCatalogMatch[2]);
     const debugProviderMatch = path.match(/^\/debug\/provider\/([^/]+)$/);
     if (debugProviderMatch) return await handleDebugProvider(req, res, debugProviderMatch[1], url);
     const debugAiringMatch = path.match(/^\/debug\/airing\/([^/]+)$/);
@@ -1746,52 +2711,99 @@ module.exports = async function handler(req, res) {
     if (error?.source === 'anilist' || String(error?.code || '').startsWith('ANILIST_')) {
       return json(res, 502, { error: 'AniList est momentanément indisponible.' }, 'no-store');
     }
-    return json(res, 502, { error: 'Impossible de charger les sorties USA pour le moment.' }, 'no-store');
+    return json(res, 502, { error: 'Impossible de charger le calendrier USA pour le moment.' }, 'no-store');
   }
 };
 
 module.exports._internals = {
   VERSION,
   PROVIDERS,
+  ARCHIVE_MIN_YEAR,
+  ARCHIVE_ID_PREFIX,
+  ARCHIVE_MONTHS_FR,
+  ARCHIVE_SECTIONS,
+  archiveNowParts,
+  archivePeriod,
+  archiveCatalogId,
+  archiveDescriptor,
+  buildArchiveCatalogEntries,
+  resolveArchiveCatalog,
+  buildArchiveBlueprint,
   PERIOD_OPTIONS,
+  FILM_EXTRA_CATALOGS,
   PERIOD_LABELS,
+  SERIES_STREAMING_FILTERS,
+  TVUSA_FILTERS,
+  ANIME_FILTERS,
+  MOVIE_SPECIAL_FILTERS,
+  STREAMING_PROVIDERS,
+  catalogSection,
+  filterOptionsForCatalog,
+  filterOptionsForType,
+  filterFromExtra,
+  filterCombinedMetas,
+  parseSkip,
   CATALOGS,
   EXPLORE_CATALOG_IDS,
-  HOME_PERIODS,
-  HOME_CATALOG_IDS,
   EVENT_MODES,
   MemoryCache,
   buildManifest,
   getConfig,
   requestTimeZone,
+  runtimeNow,
   normalizePeriodLabel,
   periodFromExtra,
   parseCatalogExtraSegment,
   isAllowedPosterSource,
+  normalizedCardLayout,
+  optimizedCardSource,
   calendarCardUrl,
+  calendarCardEventInfo,
+  frenchCardDate,
+  calendarAppend,
+  exactClockToken,
+  providerAccentColor,
+  calendarSourceLabel,
+  isHomeCalendarPeriod,
   decorateCatalogMetas,
   calendarCardSvg,
+  calendarTitleProfile,
   normalizeProviderName,
   resolveProviderFromDirectory,
   discoverParams,
   fallbackDiscoverParams,
+  vodDiscoverParams,
+  discoverVodCandidates,
+  usTheatricalReleaseDates,
+  selectUsTheatricalRelease,
+  discoverNowPlayingCandidates,
+  upcomingTheatricalDiscoverParams,
+  discoverUpcomingTheatricalCandidates,
+  theatricalMovieToMeta,
+  buildTheatricalCatalog,
   providerDirectory,
   resolveProvider,
   fetchDetails,
+  fetchSeasonDetails,
+  seasonCandidatesForWindow,
+  archiveEpisodeToMeta,
+  buildStreamingSeriesYearArchive,
   buildStreamingCatalog,
+  buildVodCatalog,
   buildStreamingSeriesCatalog,
   buildTvBroadcastCatalog,
   buildAnimeCatalog,
-  buildGlobalMovieCatalog,
-  buildGlobalSeriesCatalog,
-  publicGlobalSortAndMerge,
-  matchingProviderLabels,
+  combinedLeafCatalogs,
+  mergeCombinedMetas,
+  buildCombinedCatalog,
+  releaseClockMinutes,
   buildCatalog,
   mapLimitSettled,
   tmdbFetch,
   tvmazeFetch,
   tvmazeScheduleDate,
   tvmazeWebScheduleDate,
+  isLowSignalTvUsaEpisode,
   tvmazeBroadcastToMeta,
   tvmazeStreamingEpisodeToMeta,
   webChannelMatchesProvider,
