@@ -66,7 +66,7 @@ test('VOD is Films-only for periods and months',()=>{
 
 test('manifest v1.5 stays hidden from normal Home because Collections own the UI',()=>{
   const m=api._internals.buildManifest('https://archives.example',fixedNow,tz);
-  assert.equal(m.version,'1.5.2');
+  assert.equal(m.version,'1.5.3');
   assert.equal(m.catalogs.length,779);
   assert(m.catalogs.every(c=>c.showInHome===false));
   assert(m.catalogs.every(c=>c.extraSupported.includes('skip')));
@@ -114,9 +114,10 @@ test('normal streaming parent contains Modern Series and Films cards',()=>{
   assert.deepEqual(netflix.folders.map(f=>f.title),['Séries','Films']);
   for(const f of netflix.folders){
     assert.equal(f.tileShape,'LANDSCAPE');
-    assert.match(f.coverImageUrl,/platform-category-card\.svg\?provider=netflix&category=(series|films)$/);
-    assert.match(f.heroBackdropUrl,/platform-backdrop\.svg\?provider=netflix&type=(series|movie)$/);
-    assert.match(f.titleLogoUrl,/platform-logo\?provider=netflix&type=(series|movie)$/);
+    assert.equal(f.hideTitle,true);
+    assert.match(f.coverImageUrl,/platform-category-card\.svg\?provider=netflix&category=(series|films)&v=153$/);
+    assert.match(f.heroBackdropUrl,/platform-backdrop\.svg\?provider=netflix&type=(series|movie)&v=153$/);
+    assert.match(f.titleLogoUrl,/platform-logo\?provider=netflix&type=(series|movie)&v=153$/);
   }
 });
 
@@ -129,6 +130,38 @@ test('Paramount+ keeps both Series and Films folders with valid archive sources'
   assert(paramount.folders[1].sources.some(s=>s.catalogId==='archives-v3-movie-paramount-plus-2026-08'));
   assert.equal(api._internals.resolveArchiveCatalog('archives-v3-series-paramount-plus-2026-08','series',fixedNow,tz).providerSlug,'paramount-plus');
   assert.equal(api._internals.resolveArchiveCatalog('archives-v3-movie-paramount-plus-2026-08','movie',fixedNow,tz).providerSlug,'paramount-plus');
+});
+
+
+
+test('Paramount+ resolver accepts canonical, Amazon, Apple and premium provider variants',()=>{
+  const definition=api._internals.PROVIDERS.find(p=>p.slug==='paramount-plus');
+  const directory=[
+    {id:531,name:'Paramount Plus',normalized:api._internals.normalizeProviderName('Paramount Plus'),logoPath:'/canonical.png'},
+    {id:582,name:'Paramount+ Amazon Channel',normalized:api._internals.normalizeProviderName('Paramount+ Amazon Channel'),logoPath:'/amazon.png'},
+    {id:1853,name:'Paramount Plus Apple TV Channel ',normalized:api._internals.normalizeProviderName('Paramount Plus Apple TV Channel '),logoPath:'/apple.png'},
+    {id:2303,name:'Paramount Plus Premium',normalized:api._internals.normalizeProviderName('Paramount Plus Premium'),logoPath:'/premium.png'},
+    {id:2304,name:'Paramount Plus Basic with Ads',normalized:api._internals.normalizeProviderName('Paramount Plus Basic with Ads'),logoPath:'/ads.png'}
+  ];
+  const resolved=api._internals.resolveProviderFromDirectory(definition,directory);
+  assert.deepEqual(resolved.ids,[531,582,1853,2303,2304]);
+  assert.equal(resolved.logoPaths[0],'/canonical.png');
+});
+
+test('Paramount+ resolver has safe fallback IDs when provider directory naming changes',()=>{
+  const definition=api._internals.PROVIDERS.find(p=>p.slug==='paramount-plus');
+  const resolved=api._internals.resolveProviderFromDirectory(definition,[]);
+  assert(resolved.ids.includes(531));
+  assert(resolved.ids.includes(582));
+});
+
+test('platform wordmark is horizontal and keeps the provider logo large',()=>{
+  const fake='data:image/png;base64,AAAA';
+  const svg=api._internals.platformWordmarkSvg('paramount-plus',fake,'series');
+  assert.match(svg,/width="1400" height="300"/);
+  assert.match(svg,/Paramount\+/);
+  assert.match(svg,/width="224" height="224"/);
+  assert.match(svg,/data:image\/png;base64,AAAA/);
 });
 
 test('Crunchyroll + AniList has Series and Films, VOD has Films only, and Crunchyroll series rows merge anime',()=>{
@@ -197,7 +230,7 @@ test('Modern category artwork uses a huge centered logo area and keeps the Serie
   const svg=api._internals.platformCategoryCardSvg('netflix','series',fake);
   assert.match(svg,/SÉRIES/);
   assert.match(svg,/data:image\/png;base64,AAECAwQ=/);
-  assert.match(svg,/STREAMING PLATFORM/);
+  assert.match(svg,/Netflix/);
   assert.match(svg,/PÉRIODES \+ MOIS/);
   assert.match(svg,/#e50914/i);
 });
@@ -215,10 +248,8 @@ test('Modern provider backdrop is all-vector around a branded platform badge',()
   const fake='data:image/png;base64,AAAA';
   const svg=api._internals.platformBackdropSvg('prime-video','series',fake);
   assert.match(svg,/Prime Video/);
-  assert.match(svg,/data:image\/png;base64,AAAA/);
   assert.match(svg,/CALENDAR ARCHIVES/);
   assert.match(svg,/SÉRIES/);
-  assert.match(svg,/STREAMING PLATFORM/);
 });
 
 test('TMDb watch-provider logo is fetched at original resolution for non-pixelated covers',async()=>{

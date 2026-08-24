@@ -1,4 +1,4 @@
-# Nuvio Calendar Archives v1.5.2 — NVIDIA Shield / Modern
+# Nuvio Calendar Archives v1.5.3 — NVIDIA Shield / Modern
 
 Cette version garde l’architecture native Nuvio validée et ajoute les périodes automatiques, la fusion Crunchyroll + animes et une refonte complète des visuels.
 
@@ -104,7 +104,7 @@ Le parent **Crunchyroll + AniList** contient maintenant aussi un dossier **Films
 
 Les cartes `Séries` et `Films` restent en `LANDSCAPE` 16:9.
 
-La v1.5.2 change le rendu :
+La v1.5.3 change le rendu :
 
 - logo de plateforme beaucoup plus grand et centré ;
 - logo TMDb Watch Provider chargé en résolution `original` au lieu de `w300` ;
@@ -131,7 +131,7 @@ https://TON-DEPLOIEMENT/nuvio-collections.json
 
 ## Mise à jour depuis v1.4.0
 
-Après déploiement de v1.5.2 :
+Après déploiement de v1.5.3 :
 
 1. mets à jour l’addon avec le nouveau `manifest.json` ;
 2. réimporte **une seule fois** `/nuvio-collections.json` pour ajouter les cinq périodes, le parent **Crunchyroll + AniList** et le dossier **Films** ;
@@ -158,6 +158,16 @@ Puis, si nécessaire :
 ```bash
 npm run configure
 ```
+
+## Correctifs v1.5.3
+
+- **Paramount+ renforcé** : prise en charge des variantes TMDb/JustWatch (`Paramount Plus`, Amazon Channel, Apple TV Channel, Premium, Basic with Ads) et fallback d’IDs connus.
+- **Anti-crash Shield** : si une source distante tombe en erreur, le catalogue renvoie un JSON valide `{ "metas": [] }` en HTTP 200 au lieu de faire tomber le dossier Nuvio.
+- **Cartes Modern refaites** : logo plateforme beaucoup plus grand, nom plateforme très lisible, `SÉRIES` / `FILMS` énorme, moins de petits textes.
+- **Pas de doublon de titre** : les dossiers utilisent `hideTitle: true`, le libellé est intégré directement dans la carte 16:9.
+- **Hero logo refait** : `/platform-logo` renvoie maintenant un vrai wordmark horizontal SVG, au lieu d’un gros carré d’icône TMDb dans le hero.
+- **Backdrops simplifiés** : fond premium plus propre et lisible à distance sur Shield.
+- **Anime** : parent **Crunchyroll + AniList**, avec dossiers **Séries** et **Films**.
 
 ## Tests
 

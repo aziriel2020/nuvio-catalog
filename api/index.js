@@ -32,7 +32,7 @@ const {
   normalizeTitle
 } = require('../src/calendar');
 
-const VERSION = '1.5.2';
+const VERSION = '1.5.3';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const TVMAZE_BASE = 'https://api.tvmaze.com';
 const ANILIST_URL = 'https://graphql.anilist.co';
@@ -46,7 +46,8 @@ const PROVIDERS_TTL_MS = 6 * 60 * 60 * 1000;
 const TVMAZE_SCHEDULE_TTL_MS = 10 * 60 * 1000;
 const ANILIST_SCHEDULE_TTL_MS = 10 * 60 * 1000;
 const MAPPING_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-const SOURCE_VERSION = 'calendar-archives-v1.5.2-modern-shield';
+const SOURCE_VERSION = 'calendar-archives-v1.5.3-modern-shield';
+const VISUAL_REV = '153';
 
 const PROVIDERS = [
   { slug: 'netflix', label: 'Netflix', aliases: ['Netflix', 'Netflix Standard with Ads'] },
@@ -54,7 +55,7 @@ const PROVIDERS = [
   { slug: 'disney-plus', label: 'Disney+', aliases: ['Disney Plus', 'Disney+'] },
   { slug: 'max', label: 'Max', aliases: ['Max', 'HBO Max'] },
   { slug: 'apple-tv-plus', label: 'Apple TV+', aliases: ['Apple TV Plus', 'Apple TV+'] },
-  { slug: 'paramount-plus', label: 'Paramount+', aliases: ['Paramount Plus', 'Paramount+'] },
+  { slug: 'paramount-plus', label: 'Paramount+', aliases: ['Paramount Plus', 'Paramount+', 'Paramount+ Amazon Channel', 'Paramount Plus Amazon Channel', 'Paramount Plus Apple TV Channel', 'Paramount Plus Premium', 'Paramount Plus Basic with Ads', 'Paramount Plus Essential'], matchPrefixes: ['paramount plus', 'paramount'], fallbackIds: [531, 582, 1853, 2303, 2304] },
   { slug: 'peacock', label: 'Peacock', aliases: ['Peacock Premium', 'Peacock Premium Plus', 'Peacock'] },
   { slug: 'hulu', label: 'Hulu', aliases: ['Hulu'] },
   { slug: 'crunchyroll', label: 'Crunchyroll', aliases: ['Crunchyroll', 'Crunchyroll + Animes', 'AniList', 'Crunchyroll + AniList'] }
@@ -296,8 +297,8 @@ function platformImageUrls(origin, providerSlug, categoryType = 'movie') {
   if (!origin) return { backdrop: null, logo: null };
   const type = categoryType === 'series' ? 'series' : 'movie';
   return {
-    backdrop: `${origin}/platform-backdrop.svg?provider=${encodeURIComponent(providerSlug)}&type=${type}`,
-    logo: `${origin}/platform-logo?provider=${encodeURIComponent(providerSlug)}&type=${type}`
+    backdrop: `${origin}/platform-backdrop.svg?provider=${encodeURIComponent(providerSlug)}&type=${type}&v=${VISUAL_REV}`,
+    logo: `${origin}/platform-logo?provider=${encodeURIComponent(providerSlug)}&type=${type}&v=${VISUAL_REV}`
   };
 }
 
@@ -321,11 +322,11 @@ function buildPlatformCollection(definition, entries, origin = null) {
     return {
       id: `archives-${provider.slug}-${category.key}`,
       title: category.title,
-      coverImageUrl: origin ? `${origin}/platform-category-card.svg?provider=${encodeURIComponent(provider.slug)}&category=${category.key}` : null,
+      coverImageUrl: origin ? `${origin}/platform-category-card.svg?provider=${encodeURIComponent(provider.slug)}&category=${category.key}&v=${VISUAL_REV}` : null,
       focusGifEnabled: false,
       coverEmoji: category.type === 'movie' ? '🎬' : '📺',
       tileShape: 'LANDSCAPE',
-      hideTitle: false,
+      hideTitle: true,
       heroBackdropUrl: images.backdrop,
       heroVideoUrl: null,
       titleLogoUrl: images.logo,
@@ -353,7 +354,7 @@ function buildNuvioCollectionsImport(now = runtimeNow(), timeZone = DEFAULT_TIME
 function buildArchiveBlueprint(now = runtimeNow(), timeZone = DEFAULT_TIMEZONE, origin = null) {
   const collections = buildNuvioCollectionsImport(now, timeZone, origin);
   return {
-    schema: 'nuvio-calendar-archives-blueprint-v1.5.2',
+    schema: 'nuvio-calendar-archives-blueprint-v1.5.3',
     generatedForTimezone: timeZone,
     archiveMinYear: ARCHIVE_MIN_YEAR,
     visibleRollingYears: 2,
@@ -1243,11 +1244,25 @@ async function providerDirectory(type) {
 }
 
 function resolveProviderFromDirectory(definition, directory) {
-  const aliasSet = new Set(definition.aliases.map(normalizeProviderName));
-  const matches = directory.filter((entry) => aliasSet.has(entry.normalized));
+  const aliasSet = new Set((definition.aliases || []).map(normalizeProviderName));
+  const prefixes = (definition.matchPrefixes || []).map(normalizeProviderName).filter(Boolean);
+  const matches = directory.filter((entry) => {
+    if (aliasSet.has(entry.normalized)) return true;
+    return prefixes.some((prefix) => entry.normalized === prefix || entry.normalized.startsWith(`${prefix} `));
+  });
+  // Prefer the canonical provider before Amazon/Apple/Premium variants so the
+  // artwork stays consistent, but retain all matching IDs for availability.
+  matches.sort((a, b) => {
+    const canonical = normalizeProviderName(definition.aliases?.[0] || definition.label);
+    const ar = a.normalized === canonical ? 0 : 1;
+    const br = b.normalized === canonical ? 0 : 1;
+    return ar - br || a.id - b.id;
+  });
+  const ids = [...new Set(matches.map((entry) => entry.id))];
+  if (!ids.length && Array.isArray(definition.fallbackIds)) ids.push(...definition.fallbackIds);
   return {
     ...definition,
-    ids: [...new Set(matches.map((entry) => entry.id))],
+    ids: [...new Set(ids)],
     matchedNames: [...new Set(matches.map((entry) => entry.name))],
     logoPaths: [...new Set(matches.map((entry) => entry.logoPath).filter(Boolean))]
   };
@@ -1271,6 +1286,17 @@ function platformProviderDefinition(providerSlug) {
 function platformCollectionTitle(providerSlug) {
   if (providerSlug === 'crunchyroll') return 'Crunchyroll + AniList';
   return platformProviderDefinition(providerSlug)?.label || 'Streaming';
+}
+
+function platformWordmarkSvg(providerSlug, logoDataUri = null, type = 'movie') {
+  const label = escapeXml(platformCollectionTitle(providerSlug));
+  const accent = providerAccentColor(platformCollectionTitle(providerSlug));
+  const long = label.length > 16;
+  const fontSize = long ? 104 : label.length > 11 ? 126 : 150;
+  const icon = logoDataUri
+    ? `<image href="${logoDataUri}" x="34" y="38" width="224" height="224" preserveAspectRatio="xMidYMid meet"/>`
+    : `<rect x="48" y="52" width="196" height="196" rx="48" fill="${accent}" fill-opacity=".20"/><text x="146" y="183" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="72" font-weight="900">${escapeXml(platformProviderDefinition(providerSlug)?.label?.[0] || 'S')}</text>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="300" viewBox="0 0 1400 300"><rect width="1400" height="300" fill="none"/>${icon}<text x="292" y="184" fill="#fff" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="900" letter-spacing="-5">${label}</text><rect x="296" y="226" width="620" height="12" rx="6" fill="${accent}" opacity=".92"/></svg>`;
 }
 
 async function platformLogoAsset(providerSlug, type = 'movie') {
@@ -1348,32 +1374,31 @@ function platformBackdropSvg(providerSlug, type = 'movie', logoDataUri = null) {
   const label = escapeXml(platformCollectionTitle(providerSlug));
   const accent = providerAccentColor(platformCollectionTitle(providerSlug));
   const typeLabel = type === 'series' ? 'SÉRIES' : 'FILMS';
-  const badge = platformBrandBadge(providerSlug, logoDataUri, { x: 165, y: 130, width: 1040, height: 188, compact: false });
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#03060d"/><stop offset=".52" stop-color="#07111f"/><stop offset="1" stop-color="${accent}" stop-opacity=".46"/></linearGradient><linearGradient id="brandAccent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="${accent}" stop-opacity=".95"/><stop offset="1" stop-color="${accent}" stop-opacity=".16"/></linearGradient><linearGradient id="panel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0d1524" stop-opacity=".96"/><stop offset="1" stop-color="#070b12" stop-opacity=".82"/></linearGradient></defs><rect width="1920" height="1080" fill="url(#bg)"/><circle cx="1720" cy="120" r="300" fill="${accent}" opacity=".13"/><circle cx="1540" cy="860" r="380" fill="${accent}" opacity=".08"/><circle cx="190" cy="900" r="330" fill="#fff" opacity=".04"/><path d="M0 752C240 668 422 590 656 590c184 0 346 58 552 58 256 0 468-112 712-242v674H0Z" fill="#05070c" opacity=".46"/><path d="M0 785c221-56 412-136 620-136 214 0 365 68 566 68 221 0 437-95 734-244" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="3"/>${badge}<g transform="translate(165 392)"><rect width="1590" height="488" rx="44" fill="url(#panel)" stroke="#ffffff" stroke-opacity=".08"/><rect y="0" width="1590" height="4" fill="${accent}" opacity=".96"/><text x="80" y="120" fill="#fff" font-family="Arial,sans-serif" font-size="176" font-weight="900" letter-spacing="-6">${typeLabel}</text><text x="86" y="192" fill="#d5dfec" font-family="Arial,sans-serif" font-size="32" font-weight="700" letter-spacing="6">CALENDAR ARCHIVES · PÉRIODES DYNAMIQUES + MOIS DÉCROISSANTS</text><text x="86" y="255" fill="#9fb0c5" font-family="Arial,sans-serif" font-size="28" font-weight="700" letter-spacing="4">${label}</text><rect x="86" y="292" width="628" height="12" rx="6" fill="${accent}" opacity=".86"/><g transform="translate(1180 82)">${platformCategoryIcon(type === 'movie' ? 'films' : 'series')}</g><g transform="translate(80 352)"><rect x="0" y="0" width="430" height="74" rx="37" fill="#fff" fill-opacity=".06" stroke="#fff" stroke-opacity=".10"/><text x="215" y="47" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="27" font-weight="800" letter-spacing="3">VISUELS MODERN HD</text></g></g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#03060c"/><stop offset=".55" stop-color="#09111e"/><stop offset="1" stop-color="${accent}" stop-opacity=".44"/></linearGradient><radialGradient id="glow" cx=".82" cy=".22" r=".72"><stop stop-color="${accent}" stop-opacity=".28"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient></defs><rect width="1920" height="1080" fill="url(#bg)"/><rect width="1920" height="1080" fill="url(#glow)"/><path d="M0 820C300 720 495 650 720 650c250 0 390 70 622 70 215 0 380-68 578-185v545H0Z" fill="#02050a" opacity=".52"/><path d="M0 838c295-82 503-126 720-126 242 0 399 60 617 60 224 0 396-72 583-166" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="3"/><text x="112" y="780" fill="#fff" font-family="Arial,sans-serif" font-size="176" font-weight="900" letter-spacing="-6">${typeLabel}</text><text x="120" y="852" fill="#c7d3e2" font-family="Arial,sans-serif" font-size="30" font-weight="800" letter-spacing="6">${label}</text><text x="120" y="912" fill="#8fa2b8" font-family="Arial,sans-serif" font-size="24" font-weight="700" letter-spacing="4">CALENDAR ARCHIVES · PÉRIODES + MOIS DÉCROISSANTS</text><rect x="120" y="952" width="760" height="12" rx="6" fill="${accent}" opacity=".92"/></svg>`;
 }
 
 function platformCategoryCardSvg(providerSlug, category = 'series', logoDataUri = null) {
+  const label = escapeXml(platformCollectionTitle(providerSlug));
   const accent = providerAccentColor(platformCollectionTitle(providerSlug));
   const isFilms = category === 'films';
   const categoryLabel = isFilms ? 'FILMS' : 'SÉRIES';
   const detailLabel = providerSlug === 'crunchyroll'
     ? (isFilms ? 'FILMS D’ANIME + STREAMING' : 'CRUNCHYROLL + ANILIST')
     : (isFilms ? 'SORTIES STREAMING · PAR MOIS' : 'NOUVELLES SÉRIES · PAR MOIS');
-  const badge = platformBrandBadge(providerSlug, logoDataUri, { x: 72, y: 72, width: 860, height: 152, compact: true });
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#03060c"/><stop offset=".58" stop-color="#0a1220"/><stop offset="1" stop-color="${accent}" stop-opacity=".42"/></linearGradient><linearGradient id="brandAccent" x1="0" y1="0" x2="1" y2="0"><stop stop-color="${accent}" stop-opacity=".98"/><stop offset="1" stop-color="${accent}" stop-opacity=".18"/></linearGradient></defs><rect width="1600" height="900" rx="44" fill="url(#bg)"/><circle cx="1450" cy="80" r="260" fill="${accent}" opacity=".12"/><circle cx="1380" cy="780" r="290" fill="${accent}" opacity=".08"/><path d="M0 620C228 544 368 488 566 488c170 0 284 40 468 40 193 0 363-70 566-208v580H0Z" fill="#050910" opacity=".48"/>${badge}<g transform="translate(74 602)"><text x="0" y="0" fill="#fff" font-family="Arial,sans-serif" font-size="148" font-weight="900" letter-spacing="-5">${categoryLabel}</text><text x="6" y="56" fill="#d2dceb" font-family="Arial,sans-serif" font-size="28" font-weight="800" letter-spacing="4">${detailLabel}</text><text x="6" y="101" fill="#8ea1b7" font-family="Arial,sans-serif" font-size="21" font-weight="700" letter-spacing="3">PÉRIODES DYNAMIQUES + MOIS · ORDRE DÉCROISSANT</text><rect x="0" y="126" width="550" height="10" rx="5" fill="${accent}" opacity=".9"/></g><g transform="translate(1110 548)">${platformCategoryIcon(category)}</g><g transform="translate(1080 748)"><rect x="0" y="0" width="426" height="74" rx="37" fill="#fff" fill-opacity=".06" stroke="#fff" stroke-opacity=".12"/><text x="213" y="47" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="24" font-weight="800" letter-spacing="3">MODERN SHIELD</text></g><g transform="translate(1062 646)"><rect x="0" y="0" width="444" height="66" rx="33" fill="#fff" fill-opacity=".05" stroke="#fff" stroke-opacity=".10"/><text x="222" y="43" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="23" font-weight="800" letter-spacing="3">PÉRIODES + MOIS</text></g></svg>`;
+  const icon = logoDataUri
+    ? `<image href="${logoDataUri}" x="92" y="76" width="230" height="230" preserveAspectRatio="xMidYMid meet"/>`
+    : `<rect x="96" y="80" width="220" height="220" rx="52" fill="#fff" fill-opacity=".08" stroke="#fff" stroke-opacity=".14"/><text x="206" y="224" text-anchor="middle" fill="#fff" font-family="Arial,sans-serif" font-size="76" font-weight="900">${escapeXml(platformProviderDefinition(providerSlug)?.label?.[0] || 'S')}</text>`;
+  const brandSize = label.length > 17 ? 74 : label.length > 12 ? 86 : 104;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#02050a"/><stop offset=".57" stop-color="#09111f"/><stop offset="1" stop-color="${accent}" stop-opacity=".48"/></linearGradient><radialGradient id="g" cx=".82" cy=".12" r=".78"><stop stop-color="${accent}" stop-opacity=".24"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient></defs><rect width="1600" height="900" rx="44" fill="url(#bg)"/><rect width="1600" height="900" rx="44" fill="url(#g)"/><circle cx="1450" cy="100" r="270" fill="${accent}" opacity=".10"/>${icon}<text x="360" y="212" fill="#fff" font-family="Arial,sans-serif" font-size="${brandSize}" font-weight="900" letter-spacing="-4">${label}</text><rect x="362" y="246" width="650" height="11" rx="5.5" fill="${accent}" opacity=".92"/><path d="M0 584C238 510 410 474 594 474c211 0 344 51 538 51 177 0 318-48 468-142v517H0Z" fill="#02050a" opacity=".54"/><text x="84" y="700" fill="#fff" font-family="Arial,sans-serif" font-size="176" font-weight="900" letter-spacing="-7">${categoryLabel}</text><text x="92" y="762" fill="#d5dfeb" font-family="Arial,sans-serif" font-size="29" font-weight="800" letter-spacing="4">${detailLabel}</text><text x="92" y="812" fill="#91a4ba" font-family="Arial,sans-serif" font-size="22" font-weight="700" letter-spacing="3">PÉRIODES + MOIS · ORDRE DÉCROISSANT</text><rect x="92" y="848" width="660" height="12" rx="6" fill="${accent}" opacity=".9"/><g transform="translate(1180 540)">${platformCategoryIcon(category)}</g></svg>`;
 }
 
 async function handlePlatformLogo(res, url) {
   const providerSlug = url.searchParams.get('provider') || '';
   const type = url.searchParams.get('type') === 'series' ? 'series' : 'movie';
   const provider = platformProviderDefinition(providerSlug);
-  if (!provider) return svg(res, platformFallbackLogoSvg(''), 'public, max-age=3600');
+  if (!provider) return svg(res, platformWordmarkSvg('', null, type), 'public, max-age=3600');
   const asset = await platformLogoAsset(providerSlug, type);
-  if (!asset) return svg(res, platformFallbackLogoSvg(providerSlug), 'public, max-age=3600, s-maxage=3600');
-  res.statusCode = 200;
-  res.setHeader('Content-Type', asset.contentType);
-  res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000');
-  res.end(asset.buffer);
+  return svg(res, platformWordmarkSvg(providerSlug, asset?.dataUri || null, type), 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000');
 }
 
 async function handlePlatformBackdrop(res, url) {
@@ -2872,7 +2897,23 @@ async function handleCatalog(req, res, type, catalogId, extras = {}, url = null)
   const requestedFilter = extras.genre || url?.searchParams?.get('genre') || url?.searchParams?.get('filter');
   const filter = catalog.source === 'combined-calendar' ? filterFromExtra(requestedFilter, catalog) : null;
   const skip = parseSkip(extras.skip ?? url?.searchParams?.get('skip'));
-  const result = await buildCatalog({ catalog, timeZone, now, period, useCache: true, filter });
+  let result;
+  try {
+    result = await buildCatalog({ catalog, timeZone, now, period, useCache: true, filter });
+  } catch (error) {
+    // Nuvio's Collection folder should never be taken down by one provider API
+    // failure. Return a valid empty Stremio catalog so Shield stays navigable.
+    console.error(`[catalog-soft-fail] ${catalogId}`, error);
+    res.setHeader('Vary', 'x-vercel-ip-timezone');
+    res.setHeader('X-Nuvio-Calendar-Date', window.today);
+    res.setHeader('X-Nuvio-Calendar-Period', period);
+    res.setHeader('X-Nuvio-Calendar-Filter', filter?.value || 'all');
+    res.setHeader('X-Nuvio-Calendar-Skip', String(skip));
+    res.setHeader('X-Nuvio-Calendar-Total', '0');
+    res.setHeader('X-Nuvio-Calendar-Source-Errors', '1');
+    res.setHeader('X-Nuvio-Upstream-Error', '1');
+    return json(res, 200, { metas: [] }, 'private, max-age=30');
+  }
   const allMetas = catalog.source === 'combined-calendar'
     ? filterCombinedMetas(result.metas, filter, type)
     : result.metas;
@@ -3305,6 +3346,7 @@ module.exports._internals = {
   platformCollectionTitle,
   platformLogoAsset,
   platformFallbackLogoSvg,
+  platformWordmarkSvg,
   platformBackdropSvg,
   platformCategoryCardSvg,
   discoverParams,
