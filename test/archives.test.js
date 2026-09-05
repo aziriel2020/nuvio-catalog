@@ -90,6 +90,8 @@ test('Shield Modern decoration keeps real content type and landscape artwork for
     assert.equal(d.type,'movie');
     assert.equal(d.posterShape,'landscape');
     assert.match(d.background,/calendar-card\.svg/);
+    assert.match(d.banner,/calendar-card\.svg/);
+    assert.equal(d.banner,d.background);
     assert.match(d.releaseInfo,/NETFLIX/);
   }
 });
