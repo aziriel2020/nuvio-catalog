@@ -820,6 +820,9 @@ function decorateCatalogMetas(origin, metas, catalog, timeZone) {
       poster: portraitPoster || originalPoster,
       posterShape: homeVisible ? 'landscape' : (meta?.posterShape || 'poster'),
       landscapePoster: widePoster,
+      // NuvioDesktop landscape mode reads `banner` first. Mirror the exact
+      // same approved 16:9 Calendar artwork there without changing the Shield renderer.
+      banner: homeVisible ? (widePoster || originalLandscape || originalPoster) : (meta?.banner || null),
       // Critical Modern View targeting: when landscape-card style is active,
       // Nuvio reads/freeze-selects the backdrop. Feed it the Calendar card here.
       background: homeVisible ? (widePoster || originalBackground || portraitPoster) : originalBackground,
